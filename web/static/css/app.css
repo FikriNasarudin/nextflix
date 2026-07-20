@@ -181,6 +181,7 @@ a { color:inherit; text-decoration:none; }
 .player-top-bar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:4px; padding:0 4px; }
 .player-back { color:var(--muted); font-size:.85rem; transition:color .15s; }
 .player-back:hover { color:var(--text); }
+.player-title { font-size:.9rem; font-weight:500; color:var(--text); margin-right:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
 #episodesBtn { margin-left:auto; }
 .pc-settings-btn { opacity:.7; transition:opacity .15s,transform .1s; }
 .pc-settings-btn:hover { opacity:1; transform:scale(1.1); }
