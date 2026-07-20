@@ -8,6 +8,7 @@ let isSeeking = false;
 let thumbnailData = null;
 let preloadHlsInstance = null;
 let preloadNextEp = null;
+let isPiP = false;
 
 function getMediaId() {
   const parts = window.location.pathname.split('/');
@@ -41,7 +42,7 @@ async function loadMedia(id) {
     parts.push(h + 'h ' + m + 'm');
   }
   meta.innerHTML = '<h2>' + item.title + '</h2><div class="meta-line">' + parts.join(' · ') + '</div><p>' + (item.overview || '') + '</p>';
-  loadTracks(id);
+  await loadTracks(id);
   initPlayer(item);
 }
 
@@ -56,25 +57,54 @@ async function loadTracks(id) {
 
 function onSubtitleChange(value) {
   const video = document.getElementById('video');
+  const oldTrack = video.querySelector('track[data-subtitle]');
+  if (oldTrack) oldTrack.remove();
+  if (hlsInstance && hlsInstance.subtitleTrack !== -1) {
+    hlsInstance.subtitleTrack = -1;
+  }
+  if (!value) return;
   if (value.startsWith('hls-')) {
     if (hlsInstance) hlsInstance.subtitleTrack = parseInt(value.replace('hls-', ''), 10);
-  } else if (value) {
-    let trackEl = video.querySelector('track[data-subtitle]');
-    if (!trackEl) {
-      trackEl = document.createElement('track');
-      trackEl.setAttribute('data-subtitle', '');
-      trackEl.kind = 'subtitles';
-      trackEl.label = 'Subtitles';
-      video.appendChild(trackEl);
-    }
-    trackEl.src = NextflixAPI.API + '/subtitle/' + value + '/file';
-    trackEl.track.mode = 'showing';
+    return;
   }
+  const trackEl = document.createElement('track');
+  trackEl.setAttribute('data-subtitle', '');
+  trackEl.kind = 'subtitles';
+  trackEl.label = 'Subtitles';
+  trackEl.src = NextflixAPI.API + '/subtitle/' + value + '/file';
+  trackEl.addEventListener('load', function onLoad() {
+    this.track.mode = 'showing';
+  });
+  video.appendChild(trackEl);
 }
 
 function onAudioChange(value) {
-  if (value.startsWith('hls-') && hlsInstance) {
-    hlsInstance.audioTrack = parseInt(value.replace('hls-', ''), 10);
+  const video = document.getElementById('video');
+  if (!value) return;
+  if (value.startsWith('hls-')) {
+    if (hlsInstance) hlsInstance.audioTrack = parseInt(value.replace('hls-', ''), 10);
+    return;
+  }
+  if (!value.startsWith('ext-')) return;
+  const idx = parseInt(value.replace('ext-', ''), 10);
+  const track = window._extAudios && window._extAudios[idx];
+  if (!track) return;
+  if (video.audioTracks && video.audioTracks.length > 1) {
+    for (let i = 0; i < video.audioTracks.length; i++) {
+      video.audioTracks[i].enabled = (i === track.stream_index);
+    }
+    return;
+  }
+  if (hlsInstance && hlsInstance.audioTracks && hlsInstance.audioTracks.length > 1) {
+    const lang = (track.language || '').toLowerCase();
+    const title = (track.title || '').toLowerCase();
+    for (let i = 0; i < hlsInstance.audioTracks.length; i++) {
+      const at = hlsInstance.audioTracks[i];
+      if (at.lang === lang || (at.name && at.name.toLowerCase() === title)) {
+        hlsInstance.audioTrack = i;
+        return;
+      }
+    }
   }
 }
 
@@ -169,18 +199,32 @@ function initPlayer(item) {
     renderSeason(seasons[0] || (showEpisodes.length ? showEpisodes[0].season_number : 1));
   }
 
+  function syncSpeedSelects(val) {
+    document.getElementById('pcSpeed').value = val;
+    const dup = document.getElementById('pcSpeedDup');
+    if (dup) dup.value = val;
+  }
+
   function populateTracks() {
+    while (subSelect.options.length > 1) subSelect.remove(1);
+    while (audioSelect.options.length > 1) audioSelect.remove(1);
+    const subEmpty = document.getElementById('subtitleEmpty');
+    const audioEmpty = document.getElementById('audioEmpty');
     if (window._extSubs && window._extSubs.length) {
-      subSelect.style.display = 'inline-block';
+      subSelect.style.display = 'block';
+      if (subEmpty) subEmpty.style.display = 'none';
       window._extSubs.forEach(s => {
         const opt = document.createElement('option');
         opt.value = s.id;
         opt.textContent = (s.language || 'und').toUpperCase() + (s.is_forced ? ' (forced)' : '');
         subSelect.appendChild(opt);
       });
+    } else {
+      if (subEmpty) subEmpty.style.display = 'block';
     }
     if (window._extAudios && window._extAudios.length > 1) {
-      audioSelect.style.display = 'inline-block';
+      audioSelect.style.display = 'block';
+      if (audioEmpty) audioEmpty.style.display = 'none';
       window._extAudios.forEach((a, i) => {
         const opt = document.createElement('option');
         opt.value = 'ext-' + i;
@@ -188,6 +232,8 @@ function initPlayer(item) {
         if (a.is_default) opt.selected = true;
         audioSelect.appendChild(opt);
       });
+    } else {
+      if (audioEmpty) audioEmpty.style.display = 'block';
     }
   }
 
@@ -204,7 +250,7 @@ function initPlayer(item) {
       hlsInstance.attachMedia(video);
       hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
         if (hlsInstance.subtitleTracks && hlsInstance.subtitleTracks.length) {
-          subSelect.style.display = 'inline-block';
+          subSelect.style.display = 'block';
           hlsInstance.subtitleTracks.forEach((t, i) => {
             const opt = document.createElement('option');
             opt.value = 'hls-' + i;
@@ -213,7 +259,7 @@ function initPlayer(item) {
           });
         }
         if (hlsInstance.audioTracks && hlsInstance.audioTracks.length > 1) {
-          audioSelect.style.display = 'inline-block';
+          audioSelect.style.display = 'block';
           hlsInstance.audioTracks.forEach((t, i) => {
             const opt = document.createElement('option');
             opt.value = 'hls-' + i;
@@ -277,9 +323,23 @@ function initPlayer(item) {
     trySource();
   }
 
+  setupCenterPlay(video);
   setupCustomControls(video);
   setupKeyboardShortcuts(video);
+  setupSettingsDrawer();
+  setupDoubleTapSeek(video);
   loadThumbnails(item.id);
+
+  // Show next episode button in controls for TV
+  const nextEpBtn = document.getElementById('pcNextEp');
+  if (isTV && nextEpBtn) {
+    nextEpBtn.style.display = 'flex';
+    nextEpBtn.addEventListener('click', () => {
+      const idx = showEpisodes.findIndex(ep => ep.id === item.id);
+      const nextEp = idx >= 0 && idx < showEpisodes.length - 1 ? showEpisodes[idx + 1] : null;
+      if (nextEp) switchEpisode(nextEp);
+    });
+  }
 
   playSource();
 
@@ -288,19 +348,23 @@ function initPlayer(item) {
     else triggerMovieEnd(item);
   };
 
-  setInterval(async () => {
+  let saveTimer = null;
+  video.addEventListener('timeupdate', () => {
     if (!VIDEO_ID || !video.currentTime) return;
-    const isFinished = video.currentTime / DURATION >= 0.9;
-    await NextflixAPI.fetch('/progress', {
-      method: 'PUT',
-      body: JSON.stringify({
-        media_id: VIDEO_ID,
-        position_seconds: Math.floor(video.currentTime),
-        duration_seconds: DURATION,
-        is_finished: isFinished,
-      }),
-    });
-  }, 10000);
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      const isFinished = video.currentTime / DURATION >= 0.9;
+      await NextflixAPI.fetch('/progress', {
+        method: 'PUT',
+        body: JSON.stringify({
+          media_id: VIDEO_ID,
+          position_seconds: Math.floor(video.currentTime),
+          duration_seconds: DURATION,
+          is_finished: isFinished,
+        }),
+      });
+    }, 2000);
+  });
 }
 
 function formatTime(s) {
@@ -312,27 +376,75 @@ function formatTime(s) {
 
 function showControls() {
   document.getElementById('controlBar').classList.remove('pc-hidden');
-  document.getElementById('playerTopControls').classList.remove('pc-hidden');
 }
 
 function hideControls() {
   const video = document.getElementById('video');
   if (video.paused) return;
   document.getElementById('controlBar').classList.add('pc-hidden');
-  document.getElementById('playerTopControls').classList.add('pc-hidden');
+}
+
+function setupCenterPlay(video) {
+  const overlay = document.getElementById('pcCenterPlay');
+  if (!overlay) return;
+
+  overlay.addEventListener('click', () => {
+    video.paused ? video.play() : video.pause();
+  });
+
+  function update() {
+    if (video.paused) {
+      overlay.classList.add('pc-center-show');
+    } else {
+      overlay.classList.remove('pc-center-show');
+    }
+  }
+
+  video.addEventListener('play', update);
+  video.addEventListener('pause', update);
+  // Initial state
+  update();
+}
+
+function updateProgressBar(video) {
+  const played = document.getElementById('pcProgressPlayed');
+  const buffer = document.getElementById('pcProgressBuffer');
+  if (!video.duration) return;
+  const pct = (video.currentTime / video.duration) * 100;
+  if (played) played.style.width = pct + '%';
+  // Buffer progress
+  if (buffer && video.buffered.length > 0) {
+    const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+    buffer.style.width = (bufferedEnd / video.duration) * 100 + '%';
+  }
 }
 
 function setupCustomControls(video) {
   const playBtn = document.getElementById('pcPlay');
   const progress = document.getElementById('pcProgress');
+  const progressTrack = document.getElementById('pcProgressTrack');
   const timeEl = document.getElementById('pcTime');
   const volBtn = document.getElementById('pcVolBtn');
   const volSlider = document.getElementById('pcVolume');
   const speedSelect = document.getElementById('pcSpeed');
+  const speedDup = document.getElementById('pcSpeedDup');
   const fsBtn = document.getElementById('pcFs');
+  const rewindBtn = document.getElementById('pcRewind');
+  const forwardBtn = document.getElementById('pcForward');
+  const pipBtn = document.getElementById('pcPip');
+
+  const playIcon = document.getElementById('pcPlayIcon');
+
+  function setPlayIcon(playing) {
+    if (playIcon) {
+      playIcon.setAttribute('d', playing ? 'M7 4l13 8-13 8V4z' : 'M6 4h4v16H6V4zm8 0h4v16h-4V4z');
+    } else {
+      playBtn.textContent = playing ? '▶' : '⏸';
+    }
+  }
 
   function updatePlayIcon() {
-    playBtn.textContent = video.paused ? '▶' : '⏸';
+    setPlayIcon(video.paused);
   }
 
   function updateTime() {
@@ -345,10 +457,24 @@ function setupCustomControls(video) {
     const dur = video.duration || 0;
     progress.value = dur ? (cur / dur) * 100 : 0;
     timeEl.textContent = formatTime(cur) + ' / ' + formatTime(dur);
+    updateProgressBar(video);
   }
 
   function updateVolIcon() {
-    volBtn.textContent = video.muted || video.volume === 0 ? '🔇' : '🔊';
+    const volIcon = document.getElementById('pcVolIcon');
+    if (video.muted || video.volume === 0) {
+      if (volIcon) {
+        volIcon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13 0l-1.5 1.5L16.5 12l-1.5 1.5L16.5 15l1.5-1.5L19.5 15l1.5-1.5L19.5 12l1.5-1.5L19.5 9 18 10.5 16.5 9z"/>';
+      } else {
+        volBtn.textContent = '🔇';
+      }
+    } else {
+      if (volIcon) {
+        volIcon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.49 4.49 0 0 0 2.5-3.5zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
+      } else {
+        volBtn.textContent = '🔊';
+      }
+    }
   }
 
   playBtn.addEventListener('click', () => {
@@ -368,6 +494,18 @@ function setupCustomControls(video) {
     clearTimeout(autoHideTimer);
   });
 
+  if (rewindBtn) {
+    rewindBtn.addEventListener('click', () => {
+      video.currentTime = Math.max(0, video.currentTime - 10);
+    });
+  }
+
+  if (forwardBtn) {
+    forwardBtn.addEventListener('click', () => {
+      video.currentTime = Math.min(video.duration, video.currentTime + 10);
+    });
+  }
+
   progress.addEventListener('mousedown', () => { isSeeking = true; });
   progress.addEventListener('input', () => {
     if (!video.duration) return;
@@ -381,7 +519,10 @@ function setupCustomControls(video) {
   video.addEventListener('loadedmetadata', () => {
     progress.max = 100;
     updateTime();
+    updateProgressBar(video);
   });
+
+  video.addEventListener('progress', () => updateProgressBar(video));
 
   volBtn.addEventListener('click', () => {
     video.muted = !video.muted;
@@ -400,7 +541,14 @@ function setupCustomControls(video) {
 
   speedSelect.addEventListener('change', () => {
     video.playbackRate = parseFloat(speedSelect.value);
+    if (speedDup) speedDup.value = speedSelect.value;
   });
+  if (speedDup) {
+    speedDup.addEventListener('change', () => {
+      video.playbackRate = parseFloat(speedDup.value);
+      speedSelect.value = speedDup.value;
+    });
+  }
 
   fsBtn.addEventListener('click', () => {
     const container = document.getElementById('playerContainer');
@@ -412,7 +560,14 @@ function setupCustomControls(video) {
   });
 
   document.addEventListener('fullscreenchange', () => {
-    fsBtn.textContent = document.fullscreenElement ? '✕' : '⛶';
+    const icon = document.getElementById('pcFsIcon');
+    if (document.fullscreenElement) {
+      if (icon) icon.innerHTML = '<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>';
+      else fsBtn.textContent = '✕';
+    } else {
+      if (icon) icon.innerHTML = '<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>';
+      else fsBtn.textContent = '⛶';
+    }
   });
 
   video.addEventListener('mousemove', () => {
@@ -424,6 +579,23 @@ function setupCustomControls(video) {
   video.addEventListener('mouseleave', () => {
     if (!video.paused) hideControls();
   });
+
+  // PiP
+  if (pipBtn) {
+    pipBtn.addEventListener('click', async () => {
+      try {
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+        } else {
+          await video.requestPictureInPicture();
+        }
+      } catch (e) {
+        NextflixAPI.showToast('PiP not supported', 'error');
+      }
+    });
+    video.addEventListener('enterpictureinpicture', () => pipBtn.classList.add('active'));
+    video.addEventListener('leavepictureinpicture', () => pipBtn.classList.remove('active'));
+  }
 }
 
 function setupKeyboardShortcuts(video) {
@@ -443,7 +615,6 @@ function setupKeyboardShortcuts(video) {
       case 'KeyM':
         e.preventDefault();
         video.muted = !video.muted;
-        document.getElementById('pcVolBtn').textContent = video.muted ? '🔇' : '🔊';
         break;
       case 'ArrowLeft':
         e.preventDefault();
@@ -457,13 +628,11 @@ function setupKeyboardShortcuts(video) {
         e.preventDefault();
         video.volume = Math.min(1, video.volume + 0.1);
         document.getElementById('pcVolume').value = video.volume;
-        document.getElementById('pcVolBtn').textContent = video.muted ? '🔇' : '🔊';
         break;
       case 'ArrowDown':
         e.preventDefault();
         video.volume = Math.max(0, video.volume - 0.1);
         document.getElementById('pcVolume').value = video.volume;
-        document.getElementById('pcVolBtn').textContent = video.muted ? '🔇' : '🔊';
         break;
       case 'KeyL': {
         e.preventDefault();
@@ -475,6 +644,8 @@ function setupKeyboardShortcuts(video) {
         }
         video.playbackRate = next;
         document.getElementById('pcSpeed').value = next;
+        const dup = document.getElementById('pcSpeedDup');
+        if (dup) dup.value = next;
         NextflixAPI.showToast(next + 'x', 'info');
         break;
       }
@@ -487,6 +658,64 @@ function setupKeyboardShortcuts(video) {
       const pct = parseInt(e.code.slice(-1)) * 10;
       video.currentTime = (pct / 100) * video.duration;
     }
+  });
+}
+
+function setupDoubleTapSeek(video) {
+  let lastTap = 0;
+  let lastTapX = 0;
+
+  video.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    const touch = e.changedTouches[0];
+    const x = touch.clientX;
+    const timeSince = now - lastTap;
+
+    if (timeSince < 350 && Math.abs(x - lastTapX) < 40) {
+      e.preventDefault();
+      const rect = video.getBoundingClientRect();
+      const relX = (x - rect.left) / rect.width;
+      if (relX < 0.4) {
+        video.currentTime = Math.max(0, video.currentTime - 10);
+        showSeekIndicator('−10s');
+      } else if (relX > 0.6) {
+        video.currentTime = Math.min(video.duration, video.currentTime + 10);
+        showSeekIndicator('+10s');
+      }
+      lastTap = 0;
+      return;
+    }
+
+    lastTap = now;
+    lastTapX = x;
+  });
+}
+
+function showSeekIndicator(text) {
+  const el = document.createElement('div');
+  el.textContent = text;
+  el.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;color:#fff;font-size:1.5rem;font-weight:700;background:rgba(0,0,0,.5);padding:8px 16px;border-radius:6px;pointer-events:none;transition:opacity .4s ease;';
+  document.getElementById('playerContainer').appendChild(el);
+  requestAnimationFrame(() => {
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 500);
+  });
+}
+
+function setupSettingsDrawer() {
+  const btn = document.getElementById('pcSettingsBtn');
+  const overlay = document.getElementById('settingsOverlay');
+  const closeBtn = document.getElementById('settingsClose');
+  const drawer = document.getElementById('settingsDrawer');
+  if (!btn || !overlay) return;
+
+  function open() { overlay.style.display = 'flex'; }
+  function close() { overlay.style.display = 'none'; }
+
+  btn.addEventListener('click', open);
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
   });
 }
 

@@ -912,6 +912,13 @@ function renderDetailPageMoreLikeThis(item) {
 
 document.getElementById('btnAdmin').addEventListener('click', () => { window.location.href = '/admin'; });
 
+/* ===== Nav Scroll Effect ===== */
+document.addEventListener('scroll', () => {
+  const nav = document.querySelector('.nav');
+  if (!nav) return;
+  nav.classList.toggle('nav-scrolled', window.scrollY > 10);
+}, { passive: true });
+
 /* ===== Init ===== */
 const token = NextflixAPI.getToken();
 if (token) {
