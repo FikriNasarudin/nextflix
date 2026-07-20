@@ -24,7 +24,8 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	query = `
 		SELECT id, library_id, title, media_type, tmdb_id, rating,
 		       duration_seconds, trailer_youtube_id, backdrop_path, poster_path,
-		       show_name, season_number, episode_number, episode_title, year, overview, created_at
+		       show_name, season_number, episode_number, episode_title, year, overview,
+		       COALESCE(hls_480p_path, '') as hls_480p_path, created_at
 		FROM media_items mi
 		WHERE 1=1
 	`
@@ -71,6 +72,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		EpisodeTitle     string  `json:"episode_title"`
 		Year             string  `json:"year"`
 		Overview         string  `json:"overview"`
+		HLS480pPath      string  `json:"hls_480p_path"`
 		CreatedAt        string  `json:"created_at"`
 	}
 
@@ -80,7 +82,8 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(
 			&i.ID, &i.LibraryID, &i.Title, &i.MediaType, &i.TmdbID, &i.Rating,
 			&i.DurationSeconds, &i.TrailerYoutubeID, &i.BackdropPath, &i.PosterPath,
-			&i.ShowName, &i.SeasonNumber, &i.EpisodeNumber, &i.EpisodeTitle, &i.Year, &i.Overview, &i.CreatedAt,
+			&i.ShowName, &i.SeasonNumber, &i.EpisodeNumber, &i.EpisodeTitle, &i.Year, &i.Overview,
+			&i.HLS480pPath, &i.CreatedAt,
 		)
 		items = append(items, i)
 	}

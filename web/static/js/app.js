@@ -619,27 +619,23 @@ function playMedia(item) {
   overlay.style.display = 'flex';
 
   let retries = 0;
-  const sources = [
-    () => API + '/stream/' + item.id,
-    () => API + '/remux/' + item.id,
-    () => API + '/hls/' + item.id + '/480p.m3u8',
-  ];
+  const modes = ['direct', 'remux'];
 
   function trySource() {
-    if (retries >= sources.length) {
+    if (retries >= modes.length) {
       console.warn('playMedia: all sources failed for', item.id);
       showToast('No playable source found. The file format may not be supported.', 'error');
       return;
     }
-    video.src = sources[retries]();
+    const mode = modes[retries];
     retries++;
+    video.src = mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id;
     video.play().catch((e) => {
-      if (retries >= sources.length) showToast('Playback failed: ' + e.message, 'error');
+      if (retries >= modes.length) showToast('Playback failed: ' + e.message, 'error');
     });
   }
 
   video.onerror = trySource;
-  video.onended = closePlayer;
   trySource();
 }
 

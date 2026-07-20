@@ -167,21 +167,27 @@ function initPlayer(item) {
     if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
 
     let retries = 0;
-    const sources = CURRENT_QUALITY === 'hls'
-      ? [() => API + '/hls/' + item.id + '/480p.m3u8', () => API + '/remux/' + item.id]
-      : [() => API + '/stream/' + item.id, () => API + '/remux/' + item.id, () => API + '/hls/' + item.id + '/480p.m3u8'];
+    const modes = CURRENT_QUALITY === 'hls'
+      ? ['hls', 'remux']
+      : ['direct', 'remux', 'hls'];
 
     function trySource() {
-      if (retries >= sources.length) {
+      if (retries >= modes.length) {
         console.warn('playSource: all sources failed for', item.id);
         showToast('No playable source found. The file format may not be supported.', 'error');
         return;
       }
-      video.src = sources[retries]();
+      const mode = modes[retries];
       retries++;
+
+      if (mode === 'hls') {
+        playHLS();
+        return;
+      }
+      video.src = mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id;
       populateTracks();
       video.play().catch((e) => {
-        if (retries >= sources.length) showToast('Playback failed: ' + e.message, 'error');
+        if (retries >= modes.length) showToast('Playback failed: ' + e.message, 'error');
       });
     }
 

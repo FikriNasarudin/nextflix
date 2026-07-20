@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -92,8 +93,11 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 
 	cmd := exec.Command("ffmpeg",
 		"-i", filePath,
-		"-c", "copy",
+		"-c:v", "copy",
+		"-c:a", "aac",
+		"-sn",
 		"-movflags", "frag_keyframe+empty_moov",
+		"-fflags", "nobuffer",
 		"-f", "mp4",
 		"pipe:1",
 	)
@@ -115,7 +119,10 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	io.Copy(w, stdout)
-	cmd.Wait()
+
+	if err := cmd.Wait(); err != nil {
+		log.Printf("Remux: ffmpeg failed for id=%d path=%s: %v", id, filePath, err)
+	}
 }
 
 func (h *StreamHandler) HLSFile(w http.ResponseWriter, r *http.Request) {

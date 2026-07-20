@@ -371,17 +371,7 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 		id, _ := res.LastInsertId()
 		log.Printf("Scanner: added %s (id=%d, library=%d, type=%s, duration=%ds)", title, id, libraryID, mediaType, duration)
 
-		isHD := false
-		for _, stream := range result.Streams {
-			if stream.CodecType == "video" && stream.Height >= 720 {
-				isHD = true
-				break
-			}
-		}
-
-		if isHD {
-			s.encoderCh <- EncoderJob{MediaID: id, FilePath: path}
-		}
+		s.encoderCh <- EncoderJob{MediaID: id, FilePath: path}
 
 		s.detectLocalImages(id, path, ep.ShowName, ep.SeasonNumber, mediaType)
 		s.detectSubtitles(id, path)
