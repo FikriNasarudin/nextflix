@@ -58,17 +58,41 @@ async function loadSection(section) {
 }
 
 async function renderDashboard(el) {
-  const [users, libs, media] = await Promise.all([
+  const [users, libs, media, activity, settings] = await Promise.all([
     api('/users'), api('/libraries'), api('/media'),
+    api('/activity'), api('/settings'),
   ]);
+  const mediaDir = (settings||{}).scanner_media_dir || '—';
   el.innerHTML = `
     <h1>Dashboard</h1>
     <div class="card-stats">
       <div class="stat-card"><div class="stat-value">${users ? users.length : 0}</div><div class="stat-label">Users</div></div>
       <div class="stat-card"><div class="stat-value">${libs ? libs.length : 0}</div><div class="stat-label">Libraries</div></div>
       <div class="stat-card"><div class="stat-value">${media ? media.length : 0}</div><div class="stat-label">Media Items</div></div>
-      <div class="stat-card"><div class="stat-value">✔</div><div class="stat-label">All Systems OK</div></div>
+      <div class="stat-card"><div class="stat-value" style="font-size:1rem">v0.1.0</div><div class="stat-label">Version</div></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <div style="font-size:.85rem;color:var(--muted)">Media dir: <code style="color:var(--text)">${mediaDir}</code></div>
+      <button class="btn btn-primary" id="scanBtn">⟳ Scan Libraries</button>
+    </div>
+    <h2 style="font-size:1.1rem;font-weight:600;margin-bottom:12px">Recent Activity</h2>
+    <div class="activity-feed" id="activityFeed">
+      ${(activity||[]).map(a => `
+        <div class="activity-item">
+          <span class="activity-time">${a.created_at || ''}</span>
+          <span class="activity-type">${a.type}</span>
+          <span class="activity-msg">${a.message}</span>
+        </div>
+      `).join('') || '<div style="color:var(--muted);padding:12px 0">No activity yet</div>'}
     </div>`;
+
+  document.getElementById('scanBtn').onclick = async () => {
+    const btn = document.getElementById('scanBtn');
+    btn.textContent = '⟳ Scanning...';
+    btn.disabled = true;
+    await fetch('/api/v1/admin/scan', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token() } });
+    setTimeout(() => { btn.textContent = '⟳ Scan Libraries'; btn.disabled = false; renderDashboard(el); }, 3000);
+  };
 }
 
 function renderUserRows(users, filter) {
@@ -193,6 +217,11 @@ window.viewProfiles = async (uid) => {
   };
 };
 
+window.triggerScan = async () => {
+  await fetch('/api/v1/admin/scan', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token() } });
+  toast('Scan started', 'success');
+};
+
 window.toggleLibraryAccess = async (pid, lid, el) => {
   const isSelected = el.classList.toggle('selected');
   const access = await api('/profiles/' + pid + '/libraries') || { library_ids: [] };
@@ -222,20 +251,22 @@ window.deleteProfile = async (id) => {
 };
 
 async function renderLibraries(el) {
-  const libs = await api('/libraries') || [];
+  const [libs, media] = await Promise.all([api('/libraries') || [], api('/media') || []]);
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h1>Libraries</h1>
       <button class="btn btn-primary" id="addLibBtn">+ Add Library</button>
     </div>
-    <table class="admin-table"><thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Dir</th><th>Actions</th></tr></thead><tbody>
+    <table class="admin-table"><thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Dir</th><th>Media</th><th>Actions</th></tr></thead><tbody>
       ${libs.map(l => `<tr>
         <td>${l.id}</td>
         <td>${l.name}</td>
         <td>${l.description || ''}</td>
         <td>${l.library_dir || '—'}</td>
+        <td>${(media||[]).filter(m => m.library_id === l.id).length}</td>
         <td>
           <button class="btn btn-sm btn-outline" onclick="editLib(${l.id})">Edit</button>
+          <button class="btn btn-sm btn-outline" onclick="triggerScan()">Scan</button>
           <button class="btn btn-sm btn-danger" onclick="deleteLib(${l.id})">Del</button>
         </td>
       </tr>`).join('')}

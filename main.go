@@ -68,7 +68,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         addr(cfg.Server.Port),
-		Handler:      handler.NewRouter(db, authMgr, cfg.Encoder.HLSOutputDir),
+		Handler:      handler.NewRouter(db, authMgr, cfg.Encoder.HLSOutputDir, scn.ScanAll),
 		ReadTimeout:  time.Duration(cfg.Server.ReadTimeoutSec) * time.Second,
 		WriteTimeout: time.Duration(cfg.Server.WriteTimeoutSec) * time.Second,
 		IdleTimeout:  60 * time.Second,

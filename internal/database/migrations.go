@@ -222,6 +222,22 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 	db.Exec(`ALTER TABLE media_items ADD COLUMN group_id INTEGER DEFAULT NULL`)
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_media_group ON media_items(group_id)`)
 
+	// v6: activity log
+	db.Exec(`CREATE TABLE IF NOT EXISTS activity_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		type TEXT NOT NULL,
+		message TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_activity_time ON activity_log(created_at DESC)`)
+
+	// seed initial activity
+	var actCount int
+	db.QueryRow(`SELECT COUNT(*) FROM activity_log`).Scan(&actCount)
+	if actCount == 0 {
+		db.Exec(`INSERT INTO activity_log (type, message) VALUES ('system', 'Server initialized')`)
+	}
+
 	// v4: create image/subtitle/audio/collection tables (IF NOT EXISTS handles fresh installs)
 	db.Exec(`CREATE TABLE IF NOT EXISTS media_images (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,

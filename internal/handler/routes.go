@@ -22,9 +22,10 @@ type Router struct {
 	hlsDir   string
 	authMid  func(http.Handler) http.Handler
 	adminMid func(http.Handler) http.Handler
+	scanFn   func()
 }
 
-func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string) *Router {
+func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, scanFn func()) *Router {
 	r := &Router{
 		mux:      http.NewServeMux(),
 		db:       db,
@@ -32,6 +33,7 @@ func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string) *Router {
 		hlsDir:   hlsDir,
 		authMid:  middleware.Auth(authMgr),
 		adminMid: middleware.RequireAdmin,
+		scanFn:   scanFn,
 	}
 
 	authH := auth.NewHandler(db, authMgr)
@@ -254,6 +256,40 @@ func (r *Router) mountAdmin() {
 	adminMux.Handle("PUT /api/v1/admin/collections/{id}", a(ch.Update))
 	adminMux.Handle("DELETE /api/v1/admin/collections/{id}", a(ch.Delete))
 	adminMux.Handle("PUT /api/v1/admin/collections/{id}/items", a(ch.SetItems))
+
+	adminMux.Handle("POST /api/v1/admin/scan", a(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Manual scan started')`)
+		go func() {
+			r.scanFn()
+			r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Scan complete')`)
+		}()
+		writeJSON(w, map[string]string{"status": "scan started"})
+	})))
+
+	adminMux.Handle("GET /api/v1/admin/activity", a(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		rows, err := r.db.Query(`SELECT id, type, message, created_at FROM activity_log ORDER BY created_at DESC LIMIT 20`)
+		if err != nil {
+			writeError(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		type entry struct {
+			ID        int64  `json:"id"`
+			Type      string `json:"type"`
+			Message   string `json:"message"`
+			CreatedAt string `json:"created_at"`
+		}
+		var list []entry
+		for rows.Next() {
+			var e entry
+			rows.Scan(&e.ID, &e.Type, &e.Message, &e.CreatedAt)
+			list = append(list, e)
+		}
+		if list == nil {
+			list = []entry{}
+		}
+		writeJSON(w, list)
+	})))
 
 	r.mux.Handle("/api/v1/admin/", r.authMid(r.adminMid(adminMux)))
 }

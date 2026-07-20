@@ -31,3 +31,6 @@ go.work.sum
 # Env
 .env
 .env.local
+
+# Experimental
+react/
