@@ -216,6 +216,7 @@ a { color:inherit; text-decoration:none; }
 #playerOverlay.active {
   visibility: visible; pointer-events: auto; opacity: 1;
 }
+#playerOverlay.active ~ .bottom-nav { display: none; }
 .player-wrapper { position: fixed; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; z-index: 10001; background: #000; }
 .player-overlay-close { background:none; border:none; color:#fff; font-size:1.5rem; cursor:pointer; padding:4px; }
 .player-video-container { position:relative; width:100%; height:100%; background:#000; }
@@ -352,29 +353,44 @@ a { color:inherit; text-decoration:none; }
   .detail-backdrop { height:200px; }
   .detail-body { padding:0 16px 16px; }
   .detail-title { font-size:1.4rem; }
-  .player-control-bar { padding:32px 12px 6px; }
-  .pc-row { gap:4px; }
-  .pc-left { gap:4px; }
-  .pc-right { gap:8px; }
+  .player-control-bar { padding:28px 12px calc(6px + env(safe-area-inset-bottom, 0px)); }
+  .pc-row { gap:2px; }
+  .pc-left { gap:2px; }
+  .pc-right { gap:6px; }
   .pc-volume-slider { display:none; }
   .pc-volume-group:hover .pc-volume-slider { display:none; }
-  .pc-btn { padding:6px; min-width:40px; min-height:40px; }
+  .pc-btn { padding:6px; min-width:44px; min-height:44px; }
   .pc-pip-btn { display:none; }
   @media(orientation:portrait){ .pc-skip-btn { display:none; } }
   .pc-speed { font-size:10px; padding:2px 6px; }
+  .pc-time { font-size:11px; min-width:70px; }
+  .pc-time-end { display:none; }
+  .pc-progress-wrap { height:28px; }
+  .pc-progress-track { height:5px; }
   .pc-center-play { width:56px; height:56px; }
   .pc-center-play svg { width:24px; height:24px; }
   .player-info-overlay { bottom:80px; left:16px; right:16px; }
   .player-info-title { font-size:1.1rem; }
   .player-info-desc { display:none; }
   .skip-intro-btn { bottom:90px; left:16px; font-size:.8rem; padding:8px 18px; }
-  .player-top-overlay { padding:16px; }
+  .player-top-overlay { padding:calc(12px + env(safe-area-inset-top, 0px)) 16px 16px; }
   .episode-drawer {
     width:100%; max-height:70vh; top:auto; bottom:0; right:0; left:0;
     border-left:none; border-top:1px solid var(--border);
-    border-radius:16px 16px 0 0; animation:slideUp .3s cubic-bezier(.25,.46,.45,.94);
+    border-radius:16px 16px 0 0;
+    padding-bottom:calc(16px + env(safe-area-inset-bottom, 0px));
+    animation:slideUp .3s cubic-bezier(.25,.46,.45,.94);
   }
   .settings-drawer { max-width:100%; border-radius:12px 12px 0 0; }
+  .settings-body { padding-bottom:calc(24px + env(safe-area-inset-bottom, 0px)); }
+}
+/* Small phones (<=400px) — even tighter layout */
+@media(max-width:400px){
+  .player-title { font-size:.8rem; max-width:120px; }
+  .pc-time { font-size:10px; min-width:62px; }
+  .pc-speed { font-size:9px; padding:2px 4px; }
+  .pc-btn { min-width:40px; min-height:40px; padding:4px; }
+  .pc-btn svg { width:16px; height:16px; }
 }
 
 /* ===== Custom Player Controls ===== */

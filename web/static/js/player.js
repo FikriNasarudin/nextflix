@@ -478,7 +478,7 @@ function setupCustomControls(video) {
     const cur = video.currentTime || 0;
     const dur = video.duration || 0;
     if (progress) progress.value = dur ? (cur / dur) * 100 : 0;
-    timeEl.textContent = formatTime(cur) + ' / ' + formatTime(dur) + formatEndTime(cur, dur);
+    timeEl.innerHTML = formatTime(cur) + ' / ' + formatTime(dur) + '<span class="pc-time-end">' + formatEndTime(cur, dur) + '</span>';
     updateProgressBar(video);
   }
 
@@ -788,7 +788,6 @@ function setupAutoFullscreen(video) {
 
   document.addEventListener('fullscreenchange', function onFSChange() {
     if (!document.fullscreenElement) {
-      video.pause();
       if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
     }
   });
