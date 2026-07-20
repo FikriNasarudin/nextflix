@@ -1,44 +1,52 @@
-/* ===== Login ===== */
+/* ===== Login (guarded — elements only exist in index.html) ===== */
 function showLogin() {
-  document.getElementById('loginOverlay').style.display = 'flex';
-  document.getElementById('app').style.display = 'none';
+  var el = document.getElementById('loginOverlay');
+  if (el) el.style.display = 'flex';
+  el = document.getElementById('app');
+  if (el) el.style.display = 'none';
 }
 
 function hideLogin() {
-  document.getElementById('loginOverlay').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
+  var el = document.getElementById('loginOverlay');
+  if (el) el.style.display = 'none';
+  el = document.getElementById('app');
+  if (el) el.style.display = 'block';
 }
 
-document.getElementById('btnLogout').addEventListener('click', (e) => {
-  e.preventDefault();
-  NextflixAPI.clearToken();
-  window.location.href = '/';
-});
+/* ===== Login (guarded — elements only exist in index.html) ===== */
+var loginBtn = document.getElementById('loginBtn');
+if (loginBtn) {
+  document.getElementById('btnLogout').addEventListener('click', function(e) {
+    e.preventDefault();
+    NextflixAPI.clearToken();
+    window.location.href = '/';
+  });
 
-document.getElementById('loginBtn').addEventListener('click', async () => {
-  const user = document.getElementById('loginUser').value;
-  const pass = document.getElementById('loginPass').value;
-  document.getElementById('loginError').textContent = '';
-  try {
-    const res = await fetch(NextflixAPI.API + '/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user, password: pass }),
-    });
-    if (!res.ok) { document.getElementById('loginError').textContent = 'Invalid credentials'; return; }
-    const data = await res.json();
-    NextflixAPI.setToken(data.token);
-    if (data.profiles && data.profiles.length) {
-      document.getElementById('navProfile').textContent = data.profiles[0].name;
-    }
-    if (data.role === 'admin') {
-      document.getElementById('btnAdmin').style.display = 'inline-block';
-    }
-    document.getElementById('btnLogout').style.display = 'inline-block';
-    hideLogin();
-    loadAll();
-  } catch { document.getElementById('loginError').textContent = 'Network error'; }
-});
+  loginBtn.addEventListener('click', async function() {
+    var user = document.getElementById('loginUser').value;
+    var pass = document.getElementById('loginPass').value;
+    document.getElementById('loginError').textContent = '';
+    try {
+      var res = await fetch(NextflixAPI.API + '/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pass }),
+      });
+      if (!res.ok) { document.getElementById('loginError').textContent = 'Invalid credentials'; return; }
+      var data = await res.json();
+      NextflixAPI.setToken(data.token);
+      if (data.profiles && data.profiles.length) {
+        document.getElementById('navProfile').textContent = data.profiles[0].name;
+      }
+      if (data.role === 'admin') {
+        document.getElementById('btnAdmin').style.display = 'inline-block';
+      }
+      document.getElementById('btnLogout').style.display = 'inline-block';
+      hideLogin();
+      loadAll();
+    } catch(e) { document.getElementById('loginError').textContent = 'Network error'; }
+  });
+}
 
 /* ===== State ===== */
 let allMedia = [];
@@ -50,6 +58,9 @@ let billboardItems = [];
 
 /* ===== Load All Data ===== */
 async function loadAll() {
+  // Skip on player page — sections don't exist here
+  if (!document.getElementById('app')) return;
+
   const [media, progress, trending, libraries, collections, recommendations] = await Promise.all([
     NextflixAPI.fetch('/media'),
     NextflixAPI.fetch('/progress', { skipCache: true }),
@@ -68,8 +79,10 @@ async function loadAll() {
   window._lastTrending = trending || [];
   window._lastBecause = (recommendations && recommendations.because_you_watched) || [];
 
-  document.getElementById('skeletonHero').style.display = 'none';
-  document.getElementById('skeletonRow').style.display = 'none';
+  var sh = document.getElementById('skeletonHero');
+  if (sh) sh.style.display = 'none';
+  var sr = document.getElementById('skeletonRow');
+  if (sr) sr.style.display = 'none';
 
   renderContinueWatching(window._lastProgress);
   renderBecauseYouWatched(window._lastBecause);
@@ -80,10 +93,18 @@ async function loadAll() {
 
   storeHomeSectionStates();
 
-  // Delegated handler for nav filter buttons (Home, Movies, TV)
+  // Delegated navigation handler — full page nav on player page
+  function isPlayerPage() { return !!document.getElementById('playerContainer'); }
   document.addEventListener('click', function(e) {
-    var btn = e.target.closest('[data-filter]');
-    if (btn) showPage(btn.dataset.filter);
+    var btn = e.target.closest('[data-filter], [data-nav]');
+    if (!btn) return;
+    if (isPlayerPage()) {
+      var href = btn.getAttribute('href') || btn.dataset.nav;
+      if (href) { e.preventDefault(); window.location.href = href; return; }
+      window.location.href = '/';
+      return;
+    }
+    if (btn.hasAttribute('data-filter')) showPage(btn.dataset.filter);
   });
 
   NextflixRouter.addRoute('/', function() { renderHomeView(); });
@@ -96,42 +117,46 @@ async function loadAll() {
 
 /* ===== Home Section State ===== */
 function storeHomeSectionStates() {
+  var hero = document.getElementById('hero');
+  if (!hero) return;
   window._homeSectionStates = {
-    heroDisplay: document.getElementById('hero').style.display,
-    continueDisplay: document.getElementById('continueRow').style.display,
-    becauseDisplay: document.getElementById('becauseRow').style.display,
-    newlyDisplay: document.getElementById('newlyAddedRow').style.display,
-    trendingDisplay: document.getElementById('trendingRow').style.display,
-    collectionsDisplay: document.getElementById('collectionsRow').style.display,
+    heroDisplay: hero.style.display,
+    continueDisplay: (document.getElementById('continueRow') || {}).style && document.getElementById('continueRow').style.display,
+    becauseDisplay: (document.getElementById('becauseRow') || {}).style && document.getElementById('becauseRow').style.display,
+    newlyDisplay: (document.getElementById('newlyAddedRow') || {}).style && document.getElementById('newlyAddedRow').style.display,
+    trendingDisplay: (document.getElementById('trendingRow') || {}).style && document.getElementById('trendingRow').style.display,
+    collectionsDisplay: (document.getElementById('collectionsRow') || {}).style && document.getElementById('collectionsRow').style.display,
   };
 }
 
 function hideHomeSections() {
   storeHomeSectionStates();
-  document.getElementById('hero').style.display = 'none';
-  document.getElementById('skeletonHero').style.display = 'none';
-  document.getElementById('skeletonRow').style.display = 'none';
-  document.getElementById('continueRow').style.display = 'none';
-  document.getElementById('becauseRow').style.display = 'none';
-  document.getElementById('newlyAddedRow').style.display = 'none';
-  document.getElementById('trendingRow').style.display = 'none';
-  document.getElementById('collectionsRow').style.display = 'none';
+  var el;
+  el = document.getElementById('hero'); if (el) el.style.display = 'none';
+  el = document.getElementById('skeletonHero'); if (el) el.style.display = 'none';
+  el = document.getElementById('skeletonRow'); if (el) el.style.display = 'none';
+  el = document.getElementById('continueRow'); if (el) el.style.display = 'none';
+  el = document.getElementById('becauseRow'); if (el) el.style.display = 'none';
+  el = document.getElementById('newlyAddedRow'); if (el) el.style.display = 'none';
+  el = document.getElementById('trendingRow'); if (el) el.style.display = 'none';
+  el = document.getElementById('collectionsRow'); if (el) el.style.display = 'none';
 }
 
 function restoreHomeSections() {
   if (!window._homeSectionStates) return;
-  document.getElementById('hero').style.display = window._homeSectionStates.heroDisplay;
-  document.getElementById('continueRow').style.display = window._homeSectionStates.continueDisplay;
-  document.getElementById('becauseRow').style.display = window._homeSectionStates.becauseDisplay;
-  document.getElementById('newlyAddedRow').style.display = window._homeSectionStates.newlyDisplay;
-  document.getElementById('trendingRow').style.display = window._homeSectionStates.trendingDisplay;
-  document.getElementById('collectionsRow').style.display = window._homeSectionStates.collectionsDisplay;
+  var el;
+  el = document.getElementById('hero'); if (el) el.style.display = window._homeSectionStates.heroDisplay;
+  el = document.getElementById('continueRow'); if (el) el.style.display = window._homeSectionStates.continueDisplay;
+  el = document.getElementById('becauseRow'); if (el) el.style.display = window._homeSectionStates.becauseDisplay;
+  el = document.getElementById('newlyAddedRow'); if (el) el.style.display = window._homeSectionStates.newlyDisplay;
+  el = document.getElementById('trendingRow'); if (el) el.style.display = window._homeSectionStates.trendingDisplay;
+  el = document.getElementById('collectionsRow'); if (el) el.style.display = window._homeSectionStates.collectionsDisplay;
 }
 
 function renderHomeView() {
-  document.getElementById('skeletonHero').style.display = 'none';
-  document.getElementById('skeletonRow').style.display = 'none';
-  // Re-render all sections with original titles
+  var el;
+  el = document.getElementById('skeletonHero'); if (el) el.style.display = 'none';
+  el = document.getElementById('skeletonRow'); if (el) el.style.display = 'none';
   renderContinueWatching(window._lastProgress);
   renderBecauseYouWatched(window._lastBecause);
   renderNewlyAdded(allMedia);
@@ -226,7 +251,9 @@ function wrapRowWithArrows(row) {
 }
 
 function initCarousels() {
-  document.querySelectorAll('.row').forEach(row => {
+  var rows = document.querySelectorAll('.row');
+  if (!rows.length) return;
+  rows.forEach(row => {
     if (row.dataset.carouselInited) return;
     row.dataset.carouselInited = '1';
 
@@ -245,11 +272,12 @@ function showPage(page) {
   document.querySelectorAll('.nav-link[data-filter]').forEach(l => l.classList.toggle('active', l.dataset.filter === page));
   document.querySelectorAll('.bottom-nav-item[data-filter]').forEach(l => l.classList.toggle('active', l.dataset.filter === page));
 
-  const hero = document.getElementById('hero');
-  const content = document.getElementById('pageContent');
+  var hero = document.getElementById('hero');
+  var content = document.getElementById('pageContent');
+  if (!content) return;
   content.innerHTML = '';
 
-  hero.style.display = 'flex';
+  if (hero) hero.style.display = 'flex';
 
   if (page === 'all') {
     renderHomePage();
@@ -431,29 +459,30 @@ function renderTVPage() {
 
 /* ===== Continue Watching ===== */
 function renderContinueWatching(progress) {
-  const container = document.getElementById('continueContainer');
-  const section = document.getElementById('continueRow');
+  var section = document.getElementById('continueRow');
+  var container = document.getElementById('continueContainer');
+  if (!section || !container) return;
   if (!progress.length) { section.style.display = 'none'; return; }
   section.style.display = 'block';
   container.innerHTML = '';
-  progress.forEach(p => {
-    const pct = p.duration_seconds ? Math.min(100, (p.position_seconds / p.duration_seconds) * 100) : 0;
-    const card = createCard(p.media_id, p.title, p.poster_path, pct, false);
-    container.appendChild(card);
+  progress.forEach(function(p) {
+    var pct = p.duration_seconds ? Math.min(100, (p.position_seconds / p.duration_seconds) * 100) : 0;
+    container.appendChild(createCard(p.media_id, p.title, p.poster_path, pct, false));
   });
 }
 
 /* ===== Collections ===== */
 function renderCollections(collections) {
-  const section = document.getElementById('collectionsRow');
-  const container = document.getElementById('collectionsContainer');
+  var section = document.getElementById('collectionsRow');
+  var container = document.getElementById('collectionsContainer');
+  if (!section || !container) return;
   if (!collections || !collections.length) { section.style.display = 'none'; return; }
   section.style.display = 'block';
   container.innerHTML = '';
-  collections.forEach(c => {
-    const div = document.createElement('div');
+  collections.forEach(function(c) {
+    var div = document.createElement('div');
     div.className = 'card collection-card';
-    const img = document.createElement('img');
+    var img = document.createElement('img');
     img.className = 'card-poster';
     img.loading = 'lazy';
     img.alt = c.name;
@@ -463,11 +492,11 @@ function renderCollections(collections) {
       img.style.background = '#333';
     }
     div.appendChild(img);
-    const title = document.createElement('div');
+    var title = document.createElement('div');
     title.className = 'card-title';
     title.textContent = c.name;
     div.appendChild(title);
-    div.addEventListener('click', () => showCollection(c));
+    div.addEventListener('click', function() { showCollection(c); });
     container.appendChild(div);
   });
 }
@@ -533,14 +562,15 @@ function renderGrid(media) {
 
 /* ===== Trending ===== */
 function renderTrending(trending) {
-  const container = document.getElementById('trendingContainer');
-  const section = document.getElementById('trendingRow');
+  var section = document.getElementById('trendingRow');
+  var container = document.getElementById('trendingContainer');
+  if (!section || !container) return;
   if (!trending.length) { section.style.display = 'none'; return; }
   section.style.display = 'block';
   container.innerHTML = '';
-  trending.forEach(t => {
-    const card = createCard(null, t.title, t.poster_path, 0, true);
-    const rank = document.createElement('div');
+  trending.forEach(function(t) {
+    var card = createCard(null, t.title, t.poster_path, 0, true);
+    var rank = document.createElement('div');
     rank.className = 'card-rank';
     rank.textContent = t.rank;
     card.appendChild(rank);
@@ -550,28 +580,28 @@ function renderTrending(trending) {
 
 /* ===== Because You Watched ===== */
 function renderBecauseYouWatched(items) {
-  const container = document.getElementById('becauseContainer');
-  const section = document.getElementById('becauseRow');
+  var section = document.getElementById('becauseRow');
+  var container = document.getElementById('becauseContainer');
+  if (!section || !container) return;
   if (!items.length) { section.style.display = 'none'; return; }
   section.style.display = 'block';
   container.innerHTML = '';
-  items.forEach(item => {
-    const card = createCard(item.media_id, item.title, item.poster_path, 0, false);
-    container.appendChild(card);
+  items.forEach(function(item) {
+    container.appendChild(createCard(item.media_id, item.title, item.poster_path, 0, false));
   });
 }
 
 /* ===== Newly Added ===== */
 function renderNewlyAdded(media) {
-  const container = document.getElementById('newlyAddedContainer');
-  const section = document.getElementById('newlyAddedRow');
-  const slice = media.slice(0, 15);
+  var section = document.getElementById('newlyAddedRow');
+  var container = document.getElementById('newlyAddedContainer');
+  if (!section || !container) return;
+  var slice = media.slice(0, 15);
   if (!slice.length) { section.style.display = 'none'; return; }
   section.style.display = 'block';
   container.innerHTML = '';
-  slice.forEach(m => {
-    const card = createCard(m.id, m.title, m.poster_path, 0, false, 'NEW');
-    container.appendChild(card);
+  slice.forEach(function(m) {
+    container.appendChild(createCard(m.id, m.title, m.poster_path, 0, false, 'NEW'));
   });
 }
 
