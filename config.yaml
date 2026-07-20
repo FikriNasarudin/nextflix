@@ -11,7 +11,7 @@ database:
   synchronous: "NORMAL"
 
 scanner:
-  media_dir: "./media"
+  media_dir: "./media"            # root — subdirectories (movies/, tvshows/, anime/) become libraries
   max_concurrent_ffprobes: 2
   scan_batch_size: 50
   enable_filesystem_watcher: true

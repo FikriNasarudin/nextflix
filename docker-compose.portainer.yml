@@ -7,7 +7,7 @@ services:
       - "8080:8080"
     volumes:
       - ./data:/data
-      - ./media:/media
+      - ./media:/media          # subdirectories (movies/, tvshows/, anime/) auto-create libraries
       - ./config.yaml:/config.yaml:ro
     environment:
       - TZ=UTC

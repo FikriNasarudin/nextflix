@@ -37,6 +37,7 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL,
 			description TEXT DEFAULT '',
+			library_dir TEXT DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
 
@@ -140,6 +141,9 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 	if err := seedAdmin(db); err != nil {
 		return fmt.Errorf("seeding admin user: %w", err)
 	}
+
+	// v2: add library_dir column to existing libraries
+	db.Exec(`ALTER TABLE libraries ADD COLUMN library_dir TEXT DEFAULT ''`)
 
 	log.Println("Database migrations complete")
 	return nil

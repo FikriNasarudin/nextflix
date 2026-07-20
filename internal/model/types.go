@@ -23,6 +23,7 @@ type Library struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	LibraryDir  string `json:"library_dir"`
 	CreatedAt   string `json:"created_at"`
 }
 
