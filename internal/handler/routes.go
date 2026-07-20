@@ -43,6 +43,7 @@ func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string) *Router {
 	r.mountStreaming()
 	r.mountProgress()
 	r.mountTrending()
+	r.mountRecommendations()
 	r.mountAdmin()
 
 	log.Println("Routes registered")
@@ -70,6 +71,11 @@ func (r *Router) mountProgress() {
 func (r *Router) mountTrending() {
 	th := NewTrendingHandler(r.db)
 	r.mux.Handle("GET /api/v1/trending", r.authMid(http.HandlerFunc(th.List)))
+}
+
+func (r *Router) mountRecommendations() {
+	rh := NewRecommendationHandler(r.db)
+	r.mux.Handle("GET /api/v1/recommendations", r.authMid(http.HandlerFunc(rh.List)))
 }
 
 func (r *Router) mountAdmin() {

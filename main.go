@@ -15,6 +15,7 @@ import (
 	"nextflix/internal/database"
 	"nextflix/internal/encoder"
 	"nextflix/internal/handler"
+	"nextflix/internal/recommendation"
 	"nextflix/internal/scanner"
 )
 
@@ -57,6 +58,9 @@ func main() {
 	scn := scanner.New(db, cfg.Scanner, encoderCh)
 	scn.Watch()
 	go scn.ScanAll()
+
+	rec := recommendation.NewEngine(db)
+	rec.Start()
 
 	srv := &http.Server{
 		Addr:         addr(cfg.Server.Port),
