@@ -93,7 +93,9 @@ func (h *CollectionHandler) Items(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.Query(`
-		SELECT mi.id, mi.title, mi.media_type, mi.poster_path, mi.duration_seconds
+		SELECT mi.id, mi.title, mi.media_type,
+		       COALESCE(mi.poster_path, (SELECT file_path FROM media_images WHERE media_id = mi.id AND image_type = 'poster' ORDER BY is_primary DESC LIMIT 1), '') as poster_path,
+		       mi.duration_seconds
 		FROM collection_items ci
 		JOIN media_items mi ON mi.id = ci.media_id
 		WHERE ci.collection_id = ?

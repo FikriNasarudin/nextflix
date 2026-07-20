@@ -34,7 +34,10 @@ func (h *RecommendationHandler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *RecommendationHandler) getContinueWatching(profileID int64) []any {
 	rows, err := h.db.Query(`
-		SELECT pp.media_id, mi.title, mi.poster_path, pp.position_seconds, mi.duration_seconds, mi.backdrop_path
+		SELECT pp.media_id, mi.title,
+		       COALESCE(mi.poster_path, (SELECT file_path FROM media_images WHERE media_id = mi.id AND image_type = 'poster' ORDER BY is_primary DESC LIMIT 1), '') as poster_path,
+		       pp.position_seconds, mi.duration_seconds,
+		       COALESCE(mi.backdrop_path, (SELECT file_path FROM media_images WHERE media_id = mi.id AND image_type = 'backdrop' ORDER BY is_primary DESC LIMIT 1), '') as backdrop_path
 		FROM playback_progress pp
 		JOIN media_items mi ON mi.id = pp.media_id
 		WHERE pp.profile_id = ? AND pp.is_finished = 0
@@ -69,7 +72,10 @@ func (h *RecommendationHandler) getContinueWatching(profileID int64) []any {
 
 func (h *RecommendationHandler) getCached(section string, profileID int64) []any {
 	rows, err := h.db.Query(`
-		SELECT pr.media_id, mi.title, mi.poster_path, mi.backdrop_path, pr.score, mi.duration_seconds
+		SELECT pr.media_id, mi.title,
+		       COALESCE(mi.poster_path, (SELECT file_path FROM media_images WHERE media_id = mi.id AND image_type = 'poster' ORDER BY is_primary DESC LIMIT 1), '') as poster_path,
+		       COALESCE(mi.backdrop_path, (SELECT file_path FROM media_images WHERE media_id = mi.id AND image_type = 'backdrop' ORDER BY is_primary DESC LIMIT 1), '') as backdrop_path,
+		       pr.score, mi.duration_seconds
 		FROM profile_recommendations pr
 		JOIN media_items mi ON mi.id = pr.media_id
 		WHERE pr.profile_id = ? AND pr.section = ?

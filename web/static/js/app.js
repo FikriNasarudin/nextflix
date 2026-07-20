@@ -191,11 +191,7 @@ function renderBillboard(index) {
   billboardIndex = index;
   const hero = document.getElementById('hero');
   const backdrop = document.getElementById('heroBackdrop');
-  const imgUrl = item.backdrop_path
-    ? 'https://image.tmdb.org/t/p/original' + item.backdrop_path
-    : item.poster_path
-      ? (item.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w1280' + item.poster_path : item.poster_path)
-      : '';
+  const imgUrl = NextflixAPI.backdropUrl(item.backdrop_path, item.poster_path, item.id);
   backdrop.style.backgroundImage = imgUrl ? `url(${imgUrl})` : '';
   document.getElementById('heroTitle').textContent = item.title;
   const meta = [];
@@ -516,11 +512,8 @@ function renderCollections(collections) {
     img.className = 'card-poster';
     img.loading = 'lazy';
     img.alt = c.name;
-    if (c.poster_path) {
-      img.src = c.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + c.poster_path : c.poster_path;
-    } else {
-      img.style.background = '#333';
-    }
+    img.src = NextflixAPI.imageUrl(c.poster_path, c.id);
+    if (!c.poster_path) img.style.background = '#333';
     div.appendChild(img);
     var title = document.createElement('div');
     title.className = 'card-title';
@@ -755,11 +748,8 @@ function renderCollectionsPage() {
     img.className = 'card-poster';
     img.loading = 'lazy';
     img.alt = c.name;
-    if (c.poster_path) {
-      img.src = c.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + c.poster_path : c.poster_path;
-    } else {
-      img.style.background = '#333';
-    }
+    img.src = NextflixAPI.imageUrl(c.poster_path, c.id);
+    if (!c.poster_path) img.style.background = '#333';
     div.appendChild(img);
     const title = document.createElement('div');
     title.className = 'card-title';
@@ -789,13 +779,13 @@ function createCard(id, title, poster, progressPct, isTrending, badge, itemOverr
   img.loading = 'lazy';
   img.alt = title;
   img.style.background = 'var(--surface)';
-  if (poster) {
-    img.src = poster.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + poster : poster;
-  }
+  img.src = NextflixAPI.imageUrl(poster, id);
   img.onerror = function() {
     if (!this.dataset.fallback) {
       this.dataset.fallback = '1';
       this.src = NextflixAPI.API + '/image/local/poster/' + id;
+    } else {
+      this.style.display = 'none';
     }
   };
   div.appendChild(img);
@@ -993,11 +983,7 @@ function openDetail(item) {
   const body = document.getElementById('detailBody');
   selectedEpisode = null;
 
-  const imgUrl = item.backdrop_path
-    ? 'https://image.tmdb.org/t/p/original' + item.backdrop_path
-    : item.poster_path
-      ? (item.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w1280' + item.poster_path : '')
-      : '';
+  const imgUrl = NextflixAPI.backdropUrl(item.backdrop_path, item.poster_path, item.id);
   backdrop.style.backgroundImage = imgUrl ? `url(${imgUrl})` : '';
 
   const meta = [];
@@ -1010,9 +996,7 @@ function openDetail(item) {
     meta.push(h + 'h ' + m + 'm');
   }
 
-  const posterUrl = item.poster_path
-    ? (item.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + item.poster_path : item.poster_path)
-    : '';
+  const posterUrl = NextflixAPI.imageUrl(item.poster_path, item.id);
 
   if (item.hls_path) meta.push('HD');
 
@@ -1112,9 +1096,7 @@ function loadEpisodes(item) {
   function renderSeason(seasonNum) {
     const eps = all.filter(m => m.season_number === seasonNum);
     episodeList.innerHTML = eps.map(ep => {
-      const epPoster = ep.poster_path
-        ? (ep.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w200' + ep.poster_path : ep.poster_path)
-        : '';
+      const epPoster = NextflixAPI.imageUrl(ep.poster_path, ep.id, 'poster', 'w200');
       return `
         <div class="episode-item" data-id="${ep.id}">
           <img class="episode-thumb" src="${epPoster || ''}" alt="" onerror="this.classList.add('skeleton');this.src=''" loading="lazy">
@@ -1135,9 +1117,7 @@ function loadEpisodes(item) {
         el.classList.add('episode-active');
 
         const poster = document.getElementById('detailPoster');
-        const epPoster = found.poster_path
-          ? (found.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + found.poster_path : found.poster_path)
-          : '';
+        const epPoster = NextflixAPI.imageUrl(found.poster_path, found.id);
         if (epPoster) poster.src = epPoster;
 
         const overview = document.getElementById('detailOverview');
@@ -1163,15 +1143,9 @@ function renderDetailPage(params) {
 
   const content = document.getElementById('pageContent');
 
-  const imgUrl = item.backdrop_path
-    ? 'https://image.tmdb.org/t/p/original' + item.backdrop_path
-    : item.poster_path
-      ? (item.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w1280' + item.poster_path : '')
-      : '';
+  const imgUrl = NextflixAPI.backdropUrl(item.backdrop_path, item.poster_path, item.id);
 
-  const posterUrl = item.poster_path
-    ? (item.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + item.poster_path : item.poster_path)
-    : '';
+  const posterUrl = NextflixAPI.imageUrl(item.poster_path, item.id);
 
   const meta = [];
   if (item.media_type) meta.push(item.media_type.toUpperCase());
@@ -1250,9 +1224,7 @@ function renderDetailPageEpisodes(item) {
   function renderSeason(seasonNum) {
     const eps = all.filter(m => m.season_number === seasonNum);
     episodeList.innerHTML = eps.map(ep => {
-      const epPoster = ep.poster_path
-        ? (ep.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w200' + ep.poster_path : ep.poster_path)
-        : '';
+      const epPoster = NextflixAPI.imageUrl(ep.poster_path, ep.id, 'poster', 'w200');
       return `
         <div class="episode-item" data-id="${ep.id}">
           <img class="episode-thumb" src="${epPoster || ''}" alt="" onerror="this.classList.add('skeleton');this.src=''" loading="lazy">

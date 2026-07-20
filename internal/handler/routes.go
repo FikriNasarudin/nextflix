@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -182,7 +183,22 @@ func (r *Router) mountAssets() {
 		var path string
 		err = r.db.QueryRow(`SELECT file_path FROM media_images WHERE media_id = ? AND image_type = ? ORDER BY is_primary DESC LIMIT 1`, id, imgType).Scan(&path)
 		if err != nil { writeError(w, "not found", http.StatusNotFound); return }
+		w.Header().Set("Cache-Control", "public, max-age=86400")
 		http.ServeFile(w, req, path)
+	})))
+	r.mux.Handle("GET /api/v1/image/tmdb/{size}/{rest...}", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		size := req.PathValue("size")
+		rest := req.PathValue("rest")
+		imgURL := "https://image.tmdb.org/t/p/" + size + "/" + rest
+		resp, err := http.Get(imgURL)
+		if err != nil {
+			writeError(w, "tmdb unavailable", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+		io.Copy(w, resp.Body)
 	})))
 
 	r.mux.Handle("GET /api/v1/subtitle/{id}/file", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

@@ -25,7 +25,9 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	query = `
 		SELECT mi.id, mi.library_id, mi.title, mi.media_type, mi.tmdb_id, mi.rating,
-		       mi.duration_seconds, mi.trailer_youtube_id, mi.backdrop_path, mi.poster_path,
+		       mi.duration_seconds, mi.trailer_youtube_id,
+		       COALESCE(mi.backdrop_path, (SELECT file_path FROM media_images WHERE media_id = mi.id AND image_type = 'backdrop' ORDER BY is_primary DESC LIMIT 1), '') as backdrop_path,
+		       COALESCE(mi.poster_path, (SELECT file_path FROM media_images WHERE media_id = mi.id AND image_type = 'poster' ORDER BY is_primary DESC LIMIT 1), '') as poster_path,
 		       mi.show_name, mi.season_number, mi.episode_number, mi.episode_title, mi.year, mi.overview,
 		       COALESCE(mi.hls_480p_path, '') as hls_480p_path,
 		       mi.file_path,

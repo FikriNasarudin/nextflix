@@ -22,7 +22,8 @@ func (h *ProgressHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.db.Query(`
 		SELECT pp.media_id, pp.position_seconds, pp.is_finished, pp.updated_at,
-		       mi.title, mi.duration_seconds, mi.poster_path
+		       mi.title, mi.duration_seconds,
+		       COALESCE(mi.poster_path, (SELECT file_path FROM media_images WHERE media_id = mi.id AND image_type = 'poster' ORDER BY is_primary DESC LIMIT 1), '') as poster_path
 		FROM playback_progress pp
 		JOIN media_items mi ON mi.id = pp.media_id
 		WHERE pp.profile_id = ?

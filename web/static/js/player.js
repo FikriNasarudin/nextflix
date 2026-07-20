@@ -188,9 +188,7 @@ function initPlayer(item) {
     function renderSeason(seasonNum) {
       const eps = showEpisodes.filter(m => m.season_number === seasonNum);
       drawerEpisodeList.innerHTML = eps.map(ep => {
-        const epPoster = ep.poster_path
-          ? (ep.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w200' + ep.poster_path : ep.poster_path)
-          : '';
+        const epPoster = NextflixAPI.imageUrl(ep.poster_path, ep.id, 'poster', 'w200');
         return `
           <div class="episode-item" data-id="${ep.id}">
             <img class="episode-thumb" src="${epPoster || ''}" alt="" onerror="this.classList.add('skeleton');this.src=''" loading="lazy">
@@ -947,11 +945,8 @@ function triggerMovieEnd(item) {
     img.className = 'card-poster';
     img.loading = 'lazy';
     img.alt = m.title;
-    if (m.poster_path) {
-      img.src = m.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + m.poster_path : m.poster_path;
-    } else {
-      img.style.background = '#333';
-    }
+    img.src = NextflixAPI.imageUrl(m.poster_path, m.id);
+    if (!m.poster_path) img.style.background = '#333';
     card.appendChild(img);
     const title = document.createElement('div');
     title.className = 'card-title';

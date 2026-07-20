@@ -28,7 +28,25 @@ window.NextflixAPI = (function() {
     return conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g')
   }
 
-  return {
+    imageUrl: function(path, id, type, size) {
+      type = type || 'poster';
+      size = size || 'w342';
+      if (!path) {
+        if (id) return API + '/image/local/' + type + '/' + id;
+        return '';
+      }
+      if (path.startsWith('/')) return API + '/image/tmdb/' + size + path;
+      return path;
+    },
+
+    backdropUrl: function(backdrop, poster, id) {
+      if (backdrop) return backdrop.startsWith('/') ? API + '/image/tmdb/original' + backdrop : backdrop;
+      if (poster) return poster.startsWith('/') ? API + '/image/tmdb/w1280' + poster : poster;
+      if (id) return API + '/image/local/backdrop/' + id;
+      return '';
+    },
+
+    return {
     API: API,
     getToken: getToken,
     setToken: setToken,

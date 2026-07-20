@@ -574,6 +574,7 @@ func (s *Scanner) detectLocalImages(mediaID int64, filePath, showName string, se
 		p := filepath.Join(dir, name)
 		if _, err := os.Stat(p); err == nil {
 			s.db.Exec(`INSERT OR IGNORE INTO media_images (media_id, image_type, file_path, is_primary) VALUES (?, 'poster', ?, 1)`, mediaID, p)
+			s.db.Exec(`UPDATE media_items SET poster_path = ? WHERE id = ? AND (poster_path = '' OR poster_path IS NULL)`, p, mediaID)
 			break
 		}
 	}
@@ -582,6 +583,7 @@ func (s *Scanner) detectLocalImages(mediaID int64, filePath, showName string, se
 		p := filepath.Join(dir, name)
 		if _, err := os.Stat(p); err == nil {
 			s.db.Exec(`INSERT OR IGNORE INTO media_images (media_id, image_type, file_path, is_primary) VALUES (?, 'backdrop', ?, 1)`, mediaID, p)
+			s.db.Exec(`UPDATE media_items SET backdrop_path = ? WHERE id = ? AND (backdrop_path = '' OR backdrop_path IS NULL)`, p, mediaID)
 			break
 		}
 	}
