@@ -6,14 +6,21 @@ Optimized for **< 35 MB RAM** and slow connections.
 ## Quick Start
 
 ```bash
-git clone https://github.com/youruser/nextflix
+git clone https://github.com/FikriNasarudin/nextflix
 cd nextflix
-# 1. Edit config.yaml with your TMDB API key
-# 2. Put your video files in ./media/
+# 1. Put your video files in ./media/
+# 2. (Optional) Set your TMDB API key in config.yaml for trending & trailers
 docker compose up -d
 ```
 
-Open **http://localhost:8080** — the admin username and password are printed on first run.
+Open **http://localhost:8080** — first-run credentials:
+
+```
+Username: admin
+Password: admin
+```
+
+**Change the password after first login.**
 
 ## Features
 
@@ -49,7 +56,7 @@ Open **http://localhost:8080** — the admin username and password are printed o
 | `encoder.hls_segment_duration_sec` | `4` | HLS segment duration |
 | `encoder.ffmpeg_preset` | `superfast` | x264 preset for encoding |
 | `encoder.hls_output_dir` | `./data/hls` | HLS output directory |
-| `integrations.tmdb_api_key` | — | TMDB API key (required) |
+| `integrations.tmdb_api_key` | — | TMDB API key (warning if missing — TMDB features disabled) |
 | `ui.theme` | `dark` | UI theme |
 | `ui.app_title` | `My Home Netflix` | Browser tab title |
 
@@ -67,7 +74,7 @@ All three layers are AND-ed together: a profile sees media that passes **all** a
 
 ## Database
 
-SQLite3 with WAL mode. 12 tables managed via raw SQL (no ORM):
+SQLite3 with WAL mode. 12 tables managed via raw SQL (no ORM). Schema is auto-created on first run:
 
 | Table | Purpose |
 |---|---|

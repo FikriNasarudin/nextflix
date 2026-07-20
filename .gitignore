@@ -7,6 +7,11 @@ nextflix.exe
 /data/
 /media/
 
+# SQLite (catch custom paths)
+*.db
+*.db-wal
+*.db-shm
+
 # IDE
 .vscode/
 .idea/
