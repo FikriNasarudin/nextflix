@@ -109,6 +109,8 @@ async function loadAll() {
 
   NextflixRouter.addRoute('/', function() { renderHomeView(); });
   NextflixRouter.addRoute('/detail/:id', function(params) { renderDetailPage(params); });
+  NextflixRouter.addRoute('/browse/movies', function() { renderAllMoviesPage(); });
+  NextflixRouter.addRoute('/browse/tv', function() { renderAllTVPage(); });
   NextflixRouter.addRoute('/browse/:section', function(params) { renderBrowsePage(params); });
   NextflixRouter.addRoute('/collections', function() { renderCollectionsPage(); });
   NextflixRouter.init();
@@ -289,19 +291,58 @@ function showPage(page) {
   initCarousels();
 }
 
+/* ===== Match TMDB item to local media ===== */
+function findLocalMedia(tmdbId, title) {
+  if (tmdbId != null) {
+    var match = allMedia.find(function(m) { return m.tmdb_id == tmdbId; });
+    if (match) return match;
+  }
+  if (title) {
+    var t = title.toLowerCase().trim();
+    return allMedia.find(function(m) { return m.title && m.title.toLowerCase() === t; }) || null;
+  }
+  return null;
+}
+
+/* ===== Group TV Shows (deduplicate episodes by show_name) ===== */
+function getGroupedTVShows(media) {
+  const showMap = new Map();
+  const orphans = [];
+  (media || []).filter(function(m) { return m.media_type === 'tv'; }).forEach(function(m) {
+    if (!m.show_name) { orphans.push(m); return; }
+    if (!showMap.has(m.show_name)) {
+      showMap.set(m.show_name, []);
+    }
+    showMap.get(m.show_name).push(m);
+  });
+  const result = [];
+  for (const [, eps] of showMap) {
+    eps.sort(function(a, b) { return a.season_number - b.season_number || a.episode_number - b.episode_number; });
+    var src = eps.find(function(e) { return e.poster_path; }) || eps[0];
+    var seasons = new Set(eps.map(function(e) { return e.season_number; }));
+    result.push(Object.assign({}, src, {
+      title: eps[0].show_name,
+      _episodeCount: eps.length,
+      _seasonCount: seasons.size,
+      _episodes: eps,
+      _isGroupedShow: true,
+    }));
+  }
+  orphans.forEach(function(m) {
+    result.push(Object.assign({}, m, { _isOrphan: true }));
+  });
+  result.sort(function(a, b) { return ((a.created_at || '') > (b.created_at || '') ? -1 : 1); });
+  return result;
+}
+
 function renderHomePage() {
-  initBillboard(allMedia);
+  const homeTV = getGroupedTVShows(allMedia);
+  const homeMovies = allMedia.filter(m => m.media_type === 'movie');
+  const homeDisplay = [...homeMovies, ...homeTV];
+  initBillboard(homeDisplay);
 
   const content = document.getElementById('pageContent');
-  content.innerHTML = `
-    <section class="row-section" id="homeFilterSection">
-      <h2 class="row-title">All Media</h2>
-      <div class="filter-bar" id="filterBar"></div>
-      <div class="grid" id="mediaGrid"></div>
-    </section>
-  `;
-  renderFilters(allLibraries);
-  renderGrid(allMedia);
+  content.innerHTML = '';
 }
 
 function renderMoviesPage() {
@@ -371,19 +412,14 @@ function renderMoviesPage() {
   }
 
   const content = document.getElementById('pageContent');
-  content.innerHTML = `
-    <section class="row-section">
-      <h2 class="row-title">All Movies</h2>
-      <div class="grid" id="mediaGrid"></div>
-    </section>
-  `;
-  renderGrid(movies);
+  content.innerHTML = '';
   initCarousels();
 }
 
 function renderTVPage() {
   const tv = allMedia.filter(m => m.media_type === 'tv');
-  initBillboard(tv);
+  const tvShows = getGroupedTVShows(tv);
+  initBillboard(tvShows);
 
   const continueTV = (window._lastProgress || []).filter(p => {
     const m = allMedia.find(x => x.id == p.media_id);
@@ -426,8 +462,8 @@ function renderTVPage() {
   document.getElementById('newlyAddedRow').style.display = 'block';
   document.getElementById('newlyAddedRow').querySelector('.row-title').innerHTML = 'Newly Added TV <span class="row-view-all" data-nav="/browse/new">View All →</span>';
   newlyContainer.innerHTML = '';
-  const newTV = tv.slice(0, 15);
-  newTV.forEach(m => newlyContainer.appendChild(createCard(m.id, m.title, m.poster_path, 0, false, 'NEW')));
+  const newTVShows = tvShows.slice(0, 15);
+  newTVShows.forEach(m => newlyContainer.appendChild(createCard(m.id, m.title, m.poster_path, 0, false, 'NEW', m)));
 
   if (tvTrending.length) {
     document.getElementById('trendingRow').style.display = 'block';
@@ -447,13 +483,7 @@ function renderTVPage() {
   }
 
   const content = document.getElementById('pageContent');
-  content.innerHTML = `
-    <section class="row-section">
-      <h2 class="row-title">All TV Shows</h2>
-      <div class="grid" id="mediaGrid"></div>
-    </section>
-  `;
-  renderGrid(tv);
+  content.innerHTML = '';
   initCarousels();
 }
 
@@ -554,8 +584,11 @@ function renderGrid(media) {
     grid.innerHTML = '<div class="empty-state"><p>No media yet</p><p style="font-size:.8rem;color:var(--muted)">Add files to your media directories or check the scanner logs.</p></div>';
     return;
   }
-  media.forEach(m => {
-    const card = createCard(m.id, m.title, m.poster_path, 0, false);
+  const movies = media.filter(m => m.media_type !== 'tv');
+  const tvShows = getGroupedTVShows(media);
+  const display = [...movies, ...tvShows];
+  display.forEach(m => {
+    const card = createCard(m.id, m.title, m.poster_path, 0, false, undefined, m._isGroupedShow ? m : undefined);
     grid.appendChild(card);
   });
 }
@@ -565,11 +598,15 @@ function renderTrending(trending) {
   var section = document.getElementById('trendingRow');
   var container = document.getElementById('trendingContainer');
   if (!section || !container) return;
-  if (!trending.length) { section.style.display = 'none'; return; }
+  var owned = trending.filter(function(t) { return findLocalMedia(t.tmdb_id, t.title); });
+  if (!owned.length) { section.style.display = 'none'; return; }
   section.style.display = 'block';
   container.innerHTML = '';
-  trending.forEach(function(t) {
-    var card = createCard(null, t.title, t.poster_path, 0, true);
+  owned.forEach(function(t) {
+    var local = findLocalMedia(t.tmdb_id, t.title);
+    var id = local ? local.id : null;
+    var poster = local ? local.poster_path : t.poster_path;
+    var card = createCard(id, t.title, poster, 0, true);
     var rank = document.createElement('div');
     rank.className = 'card-rank';
     rank.textContent = t.rank;
@@ -596,12 +633,15 @@ function renderNewlyAdded(media) {
   var section = document.getElementById('newlyAddedRow');
   var container = document.getElementById('newlyAddedContainer');
   if (!section || !container) return;
-  var slice = media.slice(0, 15);
+  var groupedTV = getGroupedTVShows(media);
+  var movies = media.filter(function(m) { return m.media_type !== 'tv'; });
+  var display = movies.concat(groupedTV);
+  var slice = display.slice(0, 15);
   if (!slice.length) { section.style.display = 'none'; return; }
   section.style.display = 'block';
   container.innerHTML = '';
   slice.forEach(function(m) {
-    container.appendChild(createCard(m.id, m.title, m.poster_path, 0, false, 'NEW'));
+    container.appendChild(createCard(m.id, m.title, m.poster_path, 0, false, 'NEW', m._isGroupedShow ? m : undefined));
   });
 }
 
@@ -631,15 +671,19 @@ function renderBrowsePage(params) {
     case 'new':
       title = 'Newly Added';
       content.innerHTML = makeGridPage(title);
-      allMedia.forEach(m => document.getElementById('mediaGrid').appendChild(createCard(m.id, m.title, m.poster_path, 0, false)));
+      renderGrid(allMedia);
       return;
     case 'trending':
       items = window._lastTrending || [];
       title = 'Daily Top 10';
       content.innerHTML = makeGridPage(title);
-      items.forEach((t, idx) => {
-        const card = createCard(null, t.title, t.poster_path, 0, true);
-        const rank = document.createElement('div');
+      var ownedTrending = items.filter(function(t) { return findLocalMedia(t.tmdb_id, t.title); });
+      ownedTrending.forEach(function(t, idx) {
+        var local = findLocalMedia(t.tmdb_id, t.title);
+        var id = local ? local.id : null;
+        var poster = local ? local.poster_path : t.poster_path;
+        var card = createCard(id, t.title, poster, 0, true);
+        var rank = document.createElement('div');
         rank.className = 'card-rank';
         rank.textContent = idx + 1;
         card.appendChild(rank);
@@ -655,6 +699,38 @@ function renderBrowsePage(params) {
 
 function makeGridPage(title) {
   return `<section class="row-section"><h2 class="row-title">${title}</h2><div class="grid" id="mediaGrid"></div></section>`;
+}
+
+/* ===== All Movies Page ===== */
+function renderAllMoviesPage() {
+  hideHomeSections();
+  const content = document.getElementById('pageContent');
+  const movies = allMedia.filter(m => m.media_type === 'movie');
+  content.innerHTML = `
+    <section class="row-section">
+      <h2 class="row-title">All Movies</h2>
+      <div class="filter-bar" id="filterBar"></div>
+      <div class="grid" id="mediaGrid"></div>
+    </section>
+  `;
+  renderFilters(allLibraries);
+  renderGrid(movies);
+}
+
+/* ===== All TV Shows Page ===== */
+function renderAllTVPage() {
+  hideHomeSections();
+  const content = document.getElementById('pageContent');
+  const tv = allMedia.filter(m => m.media_type === 'tv');
+  content.innerHTML = `
+    <section class="row-section">
+      <h2 class="row-title">All TV Shows</h2>
+      <div class="filter-bar" id="filterBar"></div>
+      <div class="grid" id="mediaGrid"></div>
+    </section>
+  `;
+  renderFilters(allLibraries);
+  renderGrid(tv);
 }
 
 /* ===== Collections Page ===== */
@@ -695,17 +771,16 @@ function renderCollectionsPage() {
 }
 
 /* ===== Card ===== */
-function createCard(id, title, poster, progressPct, isTrending, badge) {
+function createCard(id, title, poster, progressPct, isTrending, badge, itemOverride) {
   const div = document.createElement('div');
   div.className = 'card';
   div.dataset.id = id;
-  const item = id ? (allMedia.find(m => m.id === id) || null) : null;
+  const item = id ? (itemOverride || allMedia.find(m => m.id === id) || null) : null;
 
   if (id) {
     div.addEventListener('click', (e) => {
       if (e.target.closest('.card-hover-actions') || e.target.closest('.card-hover-action') || e.target.closest('.card-hover-action-play')) return;
-      const found = allMedia.find(m => m.id === id);
-      if (found) openDetail(found);
+      if (item) openDetail(item);
     });
   }
 
@@ -750,8 +825,8 @@ function createCard(id, title, poster, progressPct, isTrending, badge) {
       }
       info.textContent = parts.join(' ');
     } else if (item.media_type === 'tv') {
-      const eps = allMedia.filter(m => m.show_name === item.show_name && m.episode_number > 0);
-      if (eps.length) info.textContent = eps.length + ' ep' + (eps.length > 1 ? 's' : '');
+      const ec = item._episodeCount || (allMedia.filter(m => m.show_name === item.show_name && m.episode_number > 0).length);
+      if (ec) info.textContent = ec + ' ep' + (ec > 1 ? 's' : '');
     }
     if (info.textContent) div.appendChild(info);
   }
@@ -825,10 +900,14 @@ function createCard(id, title, poster, progressPct, isTrending, badge) {
       hd.textContent = 'HD';
       meta.appendChild(hd);
     }
-    if (item.media_type === 'tv' && item.season_number > 0) {
-      const seasons = document.createElement('span');
-      seasons.textContent = (item.season_number > 1 ? item.season_number + ' Seasons' : '1 Season') + (item.episode_number ? ' · ' + item.episode_number + ' ep' : '');
-      meta.appendChild(seasons);
+    if (item.media_type === 'tv') {
+      const sc = item._seasonCount || (item.season_number > 0 ? 1 : 0);
+      const ec = item._episodeCount || (item.episode_number || 0);
+      if (sc > 0) {
+        const seasons = document.createElement('span');
+        seasons.textContent = (sc > 1 ? sc + ' Seasons' : '1 Season') + (ec ? ' · ' + ec + ' ep' : '');
+        meta.appendChild(seasons);
+      }
     } else if (item.media_type === 'movie' && item.duration_seconds) {
       const h = Math.floor(item.duration_seconds / 3600);
       const m = Math.floor((item.duration_seconds % 3600) / 60);
@@ -1107,10 +1186,14 @@ function renderDetailPage(params) {
 
   const isTV = item.media_type === 'tv';
 
+  const browseLabel = isTV ? 'Browse All TV Shows' : 'Browse All Movies';
+  const browsePath = isTV ? '/browse/tv' : '/browse/movies';
+
   content.innerHTML = `
     <div class="detail-page">
       <div class="detail-page-backdrop" style="background-image: url('${imgUrl}')">
         <button class="detail-page-back" id="detailPageBack">← Back</button>
+        <button class="detail-page-browse" id="detailPageBrowse">${browseLabel}</button>
       </div>
       <div class="detail-page-body">
         <div class="detail-page-layout">
@@ -1131,6 +1214,7 @@ function renderDetailPage(params) {
   `;
 
   document.getElementById('detailPageBack').onclick = () => NextflixRouter.navigate('/');
+  document.getElementById('detailPageBrowse').onclick = () => NextflixRouter.navigate(browsePath);
   document.getElementById('detailPagePlay').onclick = () => { window.location.href = '/watch/' + item.id; };
 
   document.querySelectorAll('.nav-link[data-filter]').forEach(l => l.classList.remove('active'));
