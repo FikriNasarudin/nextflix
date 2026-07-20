@@ -14,6 +14,8 @@ type Client struct {
 	db      *sql.DB
 	baseURL string
 	rate    *time.Ticker
+	apiKeyCache string
+	apiKeyCacheTime time.Time
 }
 
 func NewClient(db *sql.DB) *Client {
@@ -25,14 +27,20 @@ func NewClient(db *sql.DB) *Client {
 }
 
 func (c *Client) apiKey() (string, error) {
+	if c.apiKeyCache != "" && time.Since(c.apiKeyCacheTime) < 5*time.Minute {
+		return c.apiKeyCache, nil
+	}
 	var key string
 	err := c.db.QueryRow(`SELECT value FROM settings WHERE key = 'tmdb_api_key'`).Scan(&key)
 	if err != nil {
 		return "", fmt.Errorf("reading tmdb_api_key: %w", err)
 	}
 	if key == "" || key == "YOUR_TMDB_API_KEY_HERE" || key == "change-me-to-a-real-key" {
+		c.apiKeyCache = ""
 		return "", fmt.Errorf("tmdb_api_key is a placeholder")
 	}
+	c.apiKeyCache = key
+	c.apiKeyCacheTime = time.Now()
 	return key, nil
 }
 

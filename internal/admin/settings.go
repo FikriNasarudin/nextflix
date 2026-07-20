@@ -22,13 +22,23 @@ func (h *SettingsHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	settings := make(map[string]string)
-	for rows.Next() {
-		var k, v string
-		rows.Scan(&k, &v)
-		settings[k] = v
+	type setting struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
 	}
-	writeJSON(w, settings)
+	var list []setting
+	for rows.Next() {
+		var s setting
+		if err := rows.Scan(&s.Key, &s.Value); err != nil {
+			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			return
+		}
+		list = append(list, s)
+	}
+	if list == nil {
+		list = []setting{}
+	}
+	writeJSON(w, list)
 }
 
 func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +49,13 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for k, v := range body {
-		h.db.Exec(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?`, k, v, v)
+		if k == "jwt_secret" {
+			continue
+		}
+		if _, err := h.db.Exec(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?`, k, v, v); err != nil {
+			http.Error(w, `{"error":"failed to save setting"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

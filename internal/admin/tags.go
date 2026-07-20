@@ -31,7 +31,10 @@ func (h *TagHandler) List(w http.ResponseWriter, r *http.Request) {
 	var tags []tag
 	for rows.Next() {
 		var t tag
-		rows.Scan(&t.ID, &t.Name, &t.TmdbGenreID)
+		if err := rows.Scan(&t.ID, &t.Name, &t.TmdbGenreID); err != nil {
+			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			return
+		}
 		tags = append(tags, t)
 	}
 	writeJSON(w, tags)
@@ -80,7 +83,10 @@ func (h *TagHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Name != nil {
-		h.db.Exec(`UPDATE tags SET name = ? WHERE id = ?`, *body.Name, id)
+		if _, err := h.db.Exec(`UPDATE tags SET name = ? WHERE id = ?`, *body.Name, id); err != nil {
+			http.Error(w, `{"error":"failed to update tag"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -91,7 +97,10 @@ func (h *TagHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
 		return
 	}
-	h.db.Exec(`DELETE FROM tags WHERE id = ?`, id)
+	if _, err := h.db.Exec(`DELETE FROM tags WHERE id = ?`, id); err != nil {
+		http.Error(w, `{"error":"failed to delete tag"}`, http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -119,7 +128,10 @@ func (h *TagHandler) ListMediaTags(w http.ResponseWriter, r *http.Request) {
 	var tags []tag
 	for rows.Next() {
 		var t tag
-		rows.Scan(&t.ID, &t.Name)
+		if err := rows.Scan(&t.ID, &t.Name); err != nil {
+			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			return
+		}
 		tags = append(tags, t)
 	}
 	writeJSON(w, tags)
@@ -150,7 +162,10 @@ func (h *TagHandler) SetMediaTags(w http.ResponseWriter, r *http.Request) {
 	for _, tid := range body.TagIDs {
 		tx.Exec(`INSERT OR IGNORE INTO media_tags (media_id, tag_id) VALUES (?, ?)`, mid, tid)
 	}
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		http.Error(w, `{"error":"failed to commit"}`, http.StatusInternalServerError)
+		return
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

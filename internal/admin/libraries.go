@@ -33,7 +33,10 @@ func (h *LibraryHandler) List(w http.ResponseWriter, r *http.Request) {
 	var libs []lib
 	for rows.Next() {
 		var l lib
-		rows.Scan(&l.ID, &l.Name, &l.Description, &l.LibraryDir, &l.CreatedAt)
+		if err := rows.Scan(&l.ID, &l.Name, &l.Description, &l.LibraryDir, &l.CreatedAt); err != nil {
+			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			return
+		}
 		libs = append(libs, l)
 	}
 	writeJSON(w, libs)
@@ -85,13 +88,22 @@ func (h *LibraryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Name != nil {
-		h.db.Exec(`UPDATE libraries SET name = ? WHERE id = ?`, *body.Name, id)
+		if _, err := h.db.Exec(`UPDATE libraries SET name = ? WHERE id = ?`, *body.Name, id); err != nil {
+			http.Error(w, `{"error":"failed to update name"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.Description != nil {
-		h.db.Exec(`UPDATE libraries SET description = ? WHERE id = ?`, *body.Description, id)
+		if _, err := h.db.Exec(`UPDATE libraries SET description = ? WHERE id = ?`, *body.Description, id); err != nil {
+			http.Error(w, `{"error":"failed to update description"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.LibraryDir != nil {
-		h.db.Exec(`UPDATE libraries SET library_dir = ? WHERE id = ?`, *body.LibraryDir, id)
+		if _, err := h.db.Exec(`UPDATE libraries SET library_dir = ? WHERE id = ?`, *body.LibraryDir, id); err != nil {
+			http.Error(w, `{"error":"failed to update library_dir"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -103,7 +115,10 @@ func (h *LibraryHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
 		return
 	}
-	h.db.Exec(`DELETE FROM libraries WHERE id = ?`, id)
+	if _, err := h.db.Exec(`DELETE FROM libraries WHERE id = ?`, id); err != nil {
+		http.Error(w, `{"error":"failed to delete library"}`, http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -132,7 +147,10 @@ func (h *LibraryHandler) SetProfileAccess(w http.ResponseWriter, r *http.Request
 	for _, lid := range body.LibraryIDs {
 		tx.Exec(`INSERT INTO profile_library_access (profile_id, library_id) VALUES (?, ?)`, pid, lid)
 	}
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		http.Error(w, `{"error":"failed to commit"}`, http.StatusInternalServerError)
+		return
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -156,7 +174,10 @@ func (h *LibraryHandler) GetProfileAccess(w http.ResponseWriter, r *http.Request
 	var ids []int64
 	for rows.Next() {
 		var id int64
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			return
+		}
 		ids = append(ids, id)
 	}
 	writeJSON(w, map[string][]int64{"library_ids": ids})

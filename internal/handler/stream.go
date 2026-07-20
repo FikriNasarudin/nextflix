@@ -102,7 +102,7 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 
 	var cmd *exec.Cmd
 	if tryCopy {
-		cmd = exec.Command("ffmpeg",
+		cmd = exec.CommandContext(r.Context(), "ffmpeg",
 			"-i", filePath,
 			"-c:v", "copy",
 			"-c:a", "aac",
@@ -114,7 +114,7 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 		)
 	} else {
 		log.Printf("Remux: transcoding id=%d codec=%s to h264", id, codec)
-		cmd = exec.Command("ffmpeg",
+		cmd = exec.CommandContext(r.Context(), "ffmpeg",
 			"-i", filePath,
 			"-c:v", "libx264",
 			"-preset", "veryfast",
@@ -177,18 +177,29 @@ func (h *StreamHandler) HLSFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filePath := filepath.Join(h.hlsOutputDir, fmt.Sprintf("%d", id), r.PathValue("rest"))
+	rest := r.PathValue("rest")
+	filePath := filepath.Join(h.hlsOutputDir, fmt.Sprintf("%d", id), rest)
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	absBase, err := filepath.Abs(h.hlsOutputDir)
+	if err != nil || !strings.HasPrefix(absPath, absBase+string(filepath.Separator)) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
 
-	ext := filepath.Ext(filePath)
+	ext := filepath.Ext(absPath)
 	if ext == ".ts" {
 		w.Header().Set("Content-Type", "video/MP2T")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
-		http.ServeFile(w, r, filePath)
+		http.ServeFile(w, r, absPath)
 		return
 	}
 
 	if ext != ".m3u8" {
-		http.ServeFile(w, r, filePath)
+		http.ServeFile(w, r, absPath)
 		return
 	}
 
@@ -196,11 +207,11 @@ func (h *StreamHandler) HLSFile(w http.ResponseWriter, r *http.Request) {
 
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		http.ServeFile(w, r, filePath)
+		http.ServeFile(w, r, absPath)
 		return
 	}
 
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(absPath)
 	if err != nil {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
@@ -231,5 +242,5 @@ func writeJSON(w http.ResponseWriter, v any) {
 func writeError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	fmt.Fprintf(w, `{"error":"%s"}`, msg)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }

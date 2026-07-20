@@ -35,7 +35,10 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	var users []user
 	for rows.Next() {
 		var u user
-		rows.Scan(&u.ID, &u.Username, &u.Role, &u.IsActive, &u.CreatedAt)
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.IsActive, &u.CreatedAt); err != nil {
+			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			return
+		}
 		users = append(users, u)
 	}
 	writeJSON(w, users)
@@ -126,29 +129,54 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Username != nil {
-		h.db.Exec(`UPDATE users SET username = ? WHERE id = ?`, *body.Username, id)
+		if _, err := h.db.Exec(`UPDATE users SET username = ? WHERE id = ?`, *body.Username, id); err != nil {
+			http.Error(w, `{"error":"failed to update username"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.Password != nil {
-		hash, _ := bcrypt.GenerateFromPassword([]byte(*body.Password), bcrypt.DefaultCost)
-		h.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(hash), id)
+		hash, err := bcrypt.GenerateFromPassword([]byte(*body.Password), bcrypt.DefaultCost)
+		if err != nil {
+			http.Error(w, `{"error":"failed to hash password"}`, http.StatusInternalServerError)
+			return
+		}
+		if _, err := h.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(hash), id); err != nil {
+			http.Error(w, `{"error":"failed to update password"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.Role != nil {
-		h.db.Exec(`UPDATE users SET role = ? WHERE id = ?`, *body.Role, id)
+		if _, err := h.db.Exec(`UPDATE users SET role = ? WHERE id = ?`, *body.Role, id); err != nil {
+			http.Error(w, `{"error":"failed to update role"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.IsActive != nil {
-		h.db.Exec(`UPDATE users SET is_active = ? WHERE id = ?`, *body.IsActive, id)
+		if _, err := h.db.Exec(`UPDATE users SET is_active = ? WHERE id = ?`, *body.IsActive, id); err != nil {
+			http.Error(w, `{"error":"failed to update status"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
-
 func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
 		return
 	}
-	h.db.Exec(`DELETE FROM users WHERE id = ?`, id)
+
+	requestUserID := userIDFromContext(r)
+	if id == requestUserID {
+		http.Error(w, `{"error":"cannot delete your own account"}`, http.StatusForbidden)
+		return
+	}
+
+	if _, err := h.db.Exec(`DELETE FROM users WHERE id = ?`, id); err != nil {
+		http.Error(w, `{"error":"failed to delete user"}`, http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -179,7 +207,10 @@ func (h *UserHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
 	var profiles []profile
 	for rows.Next() {
 		var p profile
-		rows.Scan(&p.ID, &p.Name, &p.AvatarURL, &p.IsKid, &p.MaxRating, &p.CreatedAt)
+		if err := rows.Scan(&p.ID, &p.Name, &p.AvatarURL, &p.IsKid, &p.MaxRating, &p.CreatedAt); err != nil {
+			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			return
+		}
 		profiles = append(profiles, p)
 	}
 	writeJSON(w, profiles)
@@ -240,16 +271,28 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Name != nil {
-		h.db.Exec(`UPDATE profiles SET name = ? WHERE id = ?`, *body.Name, id)
+		if _, err := h.db.Exec(`UPDATE profiles SET name = ? WHERE id = ?`, *body.Name, id); err != nil {
+			http.Error(w, `{"error":"failed to update name"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.AvatarURL != nil {
-		h.db.Exec(`UPDATE profiles SET avatar_url = ? WHERE id = ?`, *body.AvatarURL, id)
+		if _, err := h.db.Exec(`UPDATE profiles SET avatar_url = ? WHERE id = ?`, *body.AvatarURL, id); err != nil {
+			http.Error(w, `{"error":"failed to update avatar"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.IsKid != nil {
-		h.db.Exec(`UPDATE profiles SET is_kid = ? WHERE id = ?`, *body.IsKid, id)
+		if _, err := h.db.Exec(`UPDATE profiles SET is_kid = ? WHERE id = ?`, *body.IsKid, id); err != nil {
+			http.Error(w, `{"error":"failed to update is_kid"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.MaxRating != nil {
-		h.db.Exec(`UPDATE profiles SET max_rating = ? WHERE id = ?`, *body.MaxRating, id)
+		if _, err := h.db.Exec(`UPDATE profiles SET max_rating = ? WHERE id = ?`, *body.MaxRating, id); err != nil {
+			http.Error(w, `{"error":"failed to update max_rating"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -261,6 +304,9 @@ func (h *UserHandler) DeleteProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid profile id"}`, http.StatusBadRequest)
 		return
 	}
-	h.db.Exec(`DELETE FROM profiles WHERE id = ?`, id)
+	if _, err := h.db.Exec(`DELETE FROM profiles WHERE id = ?`, id); err != nil {
+		http.Error(w, `{"error":"failed to delete profile"}`, http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

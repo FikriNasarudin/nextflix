@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"nextflix/internal/middleware"
@@ -20,20 +21,31 @@ func NewMediaHandler(db *sql.DB) *MediaHandler {
 func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	profileID := middleware.ProfileIDFromContext(r.Context())
 
+	limit := 50
+	offset := 0
+	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 500 {
+		limit = l
+	}
+	if o, err := strconv.Atoi(r.URL.Query().Get("offset")); err == nil && o >= 0 {
+		offset = o
+	}
+
 	var query string
 	var args []any
 
 	query = `
 		SELECT mi.id, mi.library_id, mi.title, mi.media_type, mi.tmdb_id, mi.rating,
 		       mi.duration_seconds, mi.trailer_youtube_id,
-		       COALESCE(mi.backdrop_path, (SELECT file_path FROM media_images WHERE media_id = mi.id AND image_type = 'backdrop' ORDER BY is_primary DESC LIMIT 1), '') as backdrop_path,
-		       COALESCE(mi.poster_path, (SELECT file_path FROM media_images WHERE media_id = mi.id AND image_type = 'poster' ORDER BY is_primary DESC LIMIT 1), '') as poster_path,
+		       COALESCE(mi.backdrop_path, mb.file_path, '') as backdrop_path,
+		       COALESCE(mi.poster_path, mp.file_path, '') as poster_path,
 		       mi.show_name, mi.season_number, mi.episode_number, mi.episode_title, mi.year, mi.overview,
 		       COALESCE(mi.hls_480p_path, '') as hls_480p_path,
 		       mi.file_path,
 		COALESCE((SELECT GROUP_CONCAT(t.name, '||') FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE mt.media_id = mi.id), '') as tags,
 		       mi.created_at
 		FROM media_items mi
+		LEFT JOIN media_images mb ON mb.media_id = mi.id AND mb.image_type = 'backdrop' AND mb.is_primary = 1
+		LEFT JOIN media_images mp ON mp.media_id = mi.id AND mp.image_type = 'poster' AND mp.is_primary = 1
 		WHERE 1=1
 	`
 
@@ -54,6 +66,8 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query += ` ORDER BY mi.created_at DESC`
+	args = append(args, limit, offset)
+	query += ` LIMIT ? OFFSET ?`
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
@@ -89,12 +103,15 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var i mediaItem
 		var filePath, tagsStr string
-		rows.Scan(
+		if err := rows.Scan(
 			&i.ID, &i.LibraryID, &i.Title, &i.MediaType, &i.TmdbID, &i.Rating,
 			&i.DurationSeconds, &i.TrailerYoutubeID, &i.BackdropPath, &i.PosterPath,
 			&i.ShowName, &i.SeasonNumber, &i.EpisodeNumber, &i.EpisodeTitle, &i.Year, &i.Overview,
 			&i.HLS480pPath, &filePath, &tagsStr, &i.CreatedAt,
-		)
+		); err != nil {
+			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			return
+		}
 		i.Container = strings.TrimPrefix(filepath.Ext(filePath), ".")
 		if tagsStr != "" {
 			i.Tags = strings.Split(tagsStr, "||")
@@ -107,5 +124,11 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		items = []mediaItem{}
 	}
 
-	writeJSON(w, items)
+	var total int
+	h.db.QueryRow(`SELECT COUNT(*) FROM media_items`).Scan(&total)
+
+	writeJSON(w, map[string]any{
+		"items": items,
+		"total": total,
+	})
 }

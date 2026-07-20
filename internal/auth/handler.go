@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"sync"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -11,10 +13,21 @@ import (
 type Handler struct {
 	db      *sql.DB
 	manager *Manager
+	loginAttempts map[string]loginAttempt
+	loginMu       sync.Mutex
+}
+
+type loginAttempt struct {
+	count    int
+	blockedUntil time.Time
 }
 
 func NewHandler(db *sql.DB, manager *Manager) *Handler {
-	return &Handler{db: db, manager: manager}
+	return &Handler{
+		db:          db,
+		manager:     manager,
+		loginAttempts: make(map[string]loginAttempt),
+	}
 }
 
 type loginRequest struct {
@@ -41,6 +54,16 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	clientIP := r.RemoteAddr
+	h.loginMu.Lock()
+	a, exists := h.loginAttempts[clientIP]
+	if exists && a.blockedUntil.After(time.Now()) {
+		h.loginMu.Unlock()
+		http.Error(w, "Too many login attempts, try again later", http.StatusTooManyRequests)
+		return
+	}
+	h.loginMu.Unlock()
+
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -54,6 +77,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		req.Username,
 	).Scan(&userID, &passwordHash, &role)
 	if err == sql.ErrNoRows {
+		h.recordFailedAttempt(clientIP)
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -63,6 +87,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
+		h.recordFailedAttempt(clientIP)
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -100,4 +125,22 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	resp := loginResponse{Token: token, Role: role, Profiles: profiles}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+func (h *Handler) recordFailedAttempt(ip string) {
+	h.loginMu.Lock()
+	defer h.loginMu.Unlock()
+
+	a := h.loginAttempts[ip]
+	a.count++
+	if a.count >= 5 {
+		a.blockedUntil = time.Now().Add(15 * time.Minute)
+	}
+	h.loginAttempts[ip] = a
+
+	for k, v := range h.loginAttempts {
+		if v.blockedUntil.Before(time.Now()) && v.count < 5 {
+			delete(h.loginAttempts, k)
+		}
+	}
 }

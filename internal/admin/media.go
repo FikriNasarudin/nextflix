@@ -15,11 +15,21 @@ func NewMediaHandler(db *sql.DB) *MediaHandler {
 }
 
 func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	offset := 0
+	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 500 {
+		limit = l
+	}
+	if o, err := strconv.Atoi(r.URL.Query().Get("offset")); err == nil && o >= 0 {
+		offset = o
+	}
+
 	rows, err := h.db.Query(`
 		SELECT id, library_id, title, media_type, tmdb_id, rating,
 		       duration_seconds, trailer_youtube_id, backdrop_path, poster_path, created_at
 		FROM media_items ORDER BY created_at DESC
-	`)
+		LIMIT ? OFFSET ?
+	`, limit, offset)
 	if err != nil {
 		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
 		return
@@ -42,16 +52,24 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	var items []item
 	for rows.Next() {
 		var i item
-		rows.Scan(
+		if err := rows.Scan(
 			&i.ID, &i.LibraryID, &i.Title, &i.MediaType, &i.TmdbID, &i.Rating,
 			&i.DurationSeconds, &i.TrailerYoutubeID, &i.BackdropPath, &i.PosterPath, &i.CreatedAt,
-		)
+		); err != nil {
+			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			return
+		}
 		items = append(items, i)
 	}
 	if items == nil {
 		items = []item{}
 	}
-	writeJSON(w, items)
+	var total int
+	h.db.QueryRow(`SELECT COUNT(*) FROM media_items`).Scan(&total)
+	writeJSON(w, map[string]any{
+		"items": items,
+		"total": total,
+	})
 }
 
 func (h *MediaHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -73,16 +91,28 @@ func (h *MediaHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Title != nil {
-		h.db.Exec(`UPDATE media_items SET title = ? WHERE id = ?`, *body.Title, id)
+		if _, err := h.db.Exec(`UPDATE media_items SET title = ? WHERE id = ?`, *body.Title, id); err != nil {
+			http.Error(w, `{"error":"failed to update title"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.LibraryID != nil {
-		h.db.Exec(`UPDATE media_items SET library_id = ? WHERE id = ?`, *body.LibraryID, id)
+		if _, err := h.db.Exec(`UPDATE media_items SET library_id = ? WHERE id = ?`, *body.LibraryID, id); err != nil {
+			http.Error(w, `{"error":"failed to update library"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.Rating != nil {
-		h.db.Exec(`UPDATE media_items SET rating = ? WHERE id = ?`, *body.Rating, id)
+		if _, err := h.db.Exec(`UPDATE media_items SET rating = ? WHERE id = ?`, *body.Rating, id); err != nil {
+			http.Error(w, `{"error":"failed to update rating"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.TrailerYoutubeID != nil {
-		h.db.Exec(`UPDATE media_items SET trailer_youtube_id = ? WHERE id = ?`, *body.TrailerYoutubeID, id)
+		if _, err := h.db.Exec(`UPDATE media_items SET trailer_youtube_id = ? WHERE id = ?`, *body.TrailerYoutubeID, id); err != nil {
+			http.Error(w, `{"error":"failed to update trailer"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

@@ -40,7 +40,10 @@ func (h *CollectionHandler) List(w http.ResponseWriter, r *http.Request) {
 	var list []coll
 	for rows.Next() {
 		var c coll
-		rows.Scan(&c.ID, &c.Name, &c.PosterPath, &c.BackdropPath, &c.TmdbCollectionID, &c.Overview, &c.CreatedAt, &c.ItemCount)
+		if err := rows.Scan(&c.ID, &c.Name, &c.PosterPath, &c.BackdropPath, &c.TmdbCollectionID, &c.Overview, &c.CreatedAt, &c.ItemCount); err != nil {
+			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			return
+		}
 		list = append(list, c)
 	}
 	if list == nil {
@@ -99,19 +102,34 @@ func (h *CollectionHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Name != nil {
-		h.db.Exec(`UPDATE collections SET name = ? WHERE id = ?`, *body.Name, id)
+		if _, err := h.db.Exec(`UPDATE collections SET name = ? WHERE id = ?`, *body.Name, id); err != nil {
+			http.Error(w, `{"error":"failed to update name"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.PosterPath != nil {
-		h.db.Exec(`UPDATE collections SET poster_path = ? WHERE id = ?`, *body.PosterPath, id)
+		if _, err := h.db.Exec(`UPDATE collections SET poster_path = ? WHERE id = ?`, *body.PosterPath, id); err != nil {
+			http.Error(w, `{"error":"failed to update poster"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.BackdropPath != nil {
-		h.db.Exec(`UPDATE collections SET backdrop_path = ? WHERE id = ?`, *body.BackdropPath, id)
+		if _, err := h.db.Exec(`UPDATE collections SET backdrop_path = ? WHERE id = ?`, *body.BackdropPath, id); err != nil {
+			http.Error(w, `{"error":"failed to update backdrop"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.TmdbCollectionID != nil {
-		h.db.Exec(`UPDATE collections SET tmdb_collection_id = ? WHERE id = ?`, *body.TmdbCollectionID, id)
+		if _, err := h.db.Exec(`UPDATE collections SET tmdb_collection_id = ? WHERE id = ?`, *body.TmdbCollectionID, id); err != nil {
+			http.Error(w, `{"error":"failed to update tmdb id"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	if body.Overview != nil {
-		h.db.Exec(`UPDATE collections SET overview = ? WHERE id = ?`, *body.Overview, id)
+		if _, err := h.db.Exec(`UPDATE collections SET overview = ? WHERE id = ?`, *body.Overview, id); err != nil {
+			http.Error(w, `{"error":"failed to update overview"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -123,7 +141,10 @@ func (h *CollectionHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
 		return
 	}
-	h.db.Exec(`DELETE FROM collections WHERE id = ?`, id)
+	if _, err := h.db.Exec(`DELETE FROM collections WHERE id = ?`, id); err != nil {
+		http.Error(w, `{"error":"failed to delete collection"}`, http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -152,7 +173,10 @@ func (h *CollectionHandler) SetItems(w http.ResponseWriter, r *http.Request) {
 	for i, mid := range body.MediaIDs {
 		tx.Exec(`INSERT INTO collection_items (collection_id, media_id, sort_order) VALUES (?, ?, ?)`, id, mid, i)
 	}
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		http.Error(w, `{"error":"failed to commit"}`, http.StatusInternalServerError)
+		return
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

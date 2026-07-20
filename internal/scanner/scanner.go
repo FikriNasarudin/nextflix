@@ -141,45 +141,36 @@ func (s *Scanner) ScanAll() {
 		return
 	}
 
-	total := 0
-	for dir := range libraries {
-		fullPath := filepath.Join(s.cfg.MediaDir, dir)
-		filepath.Walk(fullPath, func(path string, fi os.FileInfo, err error) error {
-			if err != nil || fi.IsDir() {
-				return nil
-			}
-			if videoExts[strings.ToLower(filepath.Ext(path))] {
-				total++
-			}
-			return nil
-		})
-	}
-	s.progress.setTotal(total)
-
-	processed := 0
+	var files []string
 	for dir, lib := range libraries {
 		fullPath := filepath.Join(s.cfg.MediaDir, dir)
 		s.progress.setLibrary(lib.name)
 		log.Printf("Scanner: scanning library %q (%s)", lib.name, fullPath)
 
-		filepath.Walk(fullPath, func(path string, fi os.FileInfo, err error) error {
+		filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				log.Printf("Scanner: error accessing %s: %v", path, err)
 				return nil
 			}
-			if fi.IsDir() {
+			if d.IsDir() {
 				return nil
 			}
 			ext := strings.ToLower(filepath.Ext(path))
 			if !videoExts[ext] {
 				return nil
 			}
-			s.processFile(path, lib.id, lib.mediaType)
-			s.progress.setLastItem(filepath.Base(path))
-			processed++
-			s.progress.setCurrent(processed)
+			files = append(files, path)
 			return nil
 		})
+	}
+
+	s.progress.setTotal(len(files))
+
+	for i, path := range files {
+		libID, mediaType := s.resolveLibrary(path)
+		s.processFile(path, libID, mediaType)
+		s.progress.setLastItem(filepath.Base(path))
+		s.progress.setCurrent(i + 1)
 	}
 
 	log.Println("Scanner: full scan complete")
@@ -232,12 +223,14 @@ func (s *Scanner) ensureLibraries() map[string]libraryInfo {
 	rows, err := s.db.Query(`SELECT id, library_dir FROM libraries WHERE library_dir != ''`)
 	if err == nil {
 		defer rows.Close()
-		for rows.Next() {
+	for rows.Next() {
 			var id int64
 			var dir string
-			rows.Scan(&id, &dir)
+			if err := rows.Scan(&id, &dir); err != nil {
+				continue
+			}
 			existing[dir] = id
-		}
+			}
 	}
 
 	result := make(map[string]libraryInfo)

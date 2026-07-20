@@ -23,9 +23,10 @@ func (h *ProgressHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`
 		SELECT pp.media_id, pp.position_seconds, pp.is_finished, pp.updated_at,
 		       mi.title, mi.duration_seconds,
-		       COALESCE(mi.poster_path, (SELECT file_path FROM media_images WHERE media_id = mi.id AND image_type = 'poster' ORDER BY is_primary DESC LIMIT 1), '') as poster_path
+		       COALESCE(mi.poster_path, mp.file_path, '') as poster_path
 		FROM playback_progress pp
 		JOIN media_items mi ON mi.id = pp.media_id
+		LEFT JOIN media_images mp ON mp.media_id = mi.id AND mp.image_type = 'poster' AND mp.is_primary = 1
 		WHERE pp.profile_id = ?
 		ORDER BY pp.updated_at DESC
 	`, profileID)
@@ -48,8 +49,11 @@ func (h *ProgressHandler) List(w http.ResponseWriter, r *http.Request) {
 	var items []progressItem
 	for rows.Next() {
 		var i progressItem
-		rows.Scan(&i.MediaID, &i.PositionSec, &i.IsFinished, &i.UpdatedAt,
-			&i.Title, &i.DurationSec, &i.PosterPath)
+		if err := rows.Scan(&i.MediaID, &i.PositionSec, &i.IsFinished, &i.UpdatedAt,
+			&i.Title, &i.DurationSec, &i.PosterPath); err != nil {
+			writeError(w, "scan error", http.StatusInternalServerError)
+			return
+		}
 		items = append(items, i)
 	}
 	if items == nil {

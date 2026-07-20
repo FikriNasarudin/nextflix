@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -91,7 +92,10 @@ func (r *Router) mountMedia() {
 		var libs []lib
 		for rows.Next() {
 			var l lib
-			rows.Scan(&l.ID, &l.Name)
+			if err := rows.Scan(&l.ID, &l.Name); err != nil {
+				http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+				return
+			}
 			libs = append(libs, l)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -145,7 +149,13 @@ func (r *Router) mountAssets() {
 		defer rows.Close()
 		type img struct { ID int64 `json:"id"`; Type string `json:"image_type"`; Path string `json:"file_path"`; Primary bool `json:"is_primary"` }
 		var list []img
-		for rows.Next() { var i img; rows.Scan(&i.ID, &i.Type, &i.Path, &i.Primary); list = append(list, i) }
+		for rows.Next() { var i img
+			if err := rows.Scan(&i.ID, &i.Type, &i.Path, &i.Primary); err != nil {
+				writeError(w, "scan error", http.StatusInternalServerError)
+				return
+			}
+			list = append(list, i)
+		}
 		if list == nil { list = []img{} }
 		writeJSON(w, list)
 	})))
@@ -158,7 +168,13 @@ func (r *Router) mountAssets() {
 		defer rows.Close()
 		type sub struct { ID int64 `json:"id"`; Lang string `json:"language"`; Codec string `json:"codec"`; Path string `json:"file_path"`; Forced bool `json:"is_forced"`; External bool `json:"is_external"` }
 		var list []sub
-		for rows.Next() { var s sub; rows.Scan(&s.ID, &s.Lang, &s.Codec, &s.Path, &s.Forced, &s.External); list = append(list, s) }
+		for rows.Next() { var s sub
+			if err := rows.Scan(&s.ID, &s.Lang, &s.Codec, &s.Path, &s.Forced, &s.External); err != nil {
+				writeError(w, "scan error", http.StatusInternalServerError)
+				return
+			}
+			list = append(list, s)
+		}
 		if list == nil { list = []sub{} }
 		writeJSON(w, list)
 	})))
@@ -171,7 +187,13 @@ func (r *Router) mountAssets() {
 		defer rows.Close()
 		type aud struct { ID int64 `json:"id"`; Lang string `json:"language"`; Codec string `json:"codec"`; Channels int `json:"channels"`; StreamIdx int `json:"stream_index"`; Title string `json:"title"`; Default bool `json:"is_default"` }
 		var list []aud
-		for rows.Next() { var a aud; rows.Scan(&a.ID, &a.Lang, &a.Codec, &a.Channels, &a.StreamIdx, &a.Title, &a.Default); list = append(list, a) }
+		for rows.Next() { var a aud
+			if err := rows.Scan(&a.ID, &a.Lang, &a.Codec, &a.Channels, &a.StreamIdx, &a.Title, &a.Default); err != nil {
+				writeError(w, "scan error", http.StatusInternalServerError)
+				return
+			}
+			list = append(list, a)
+		}
 		if list == nil { list = []aud{} }
 		writeJSON(w, list)
 	})))
@@ -189,6 +211,16 @@ func (r *Router) mountAssets() {
 	r.mux.Handle("GET /api/v1/image/tmdb/{size}/{rest...}", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		size := req.PathValue("size")
 		rest := req.PathValue("rest")
+		validSizes := map[string]bool{"w92": true, "w154": true, "w185": true, "w342": true, "w500": true, "w780": true, "w1280": true, "original": true}
+		if !validSizes[size] {
+			writeError(w, "invalid size", http.StatusBadRequest)
+			return
+		}
+		rest = filepath.Clean("/" + rest)[1:]
+		if rest == "" || rest == "." {
+			writeError(w, "invalid path", http.StatusBadRequest)
+			return
+		}
 		imgURL := "https://image.tmdb.org/t/p/" + size + "/" + rest
 		resp, err := http.Get(imgURL)
 		if err != nil {
@@ -316,7 +348,10 @@ func (r *Router) mountAdmin() {
 	adminMux.Handle("PUT /api/v1/admin/collections/{id}/items", a(ch.SetItems))
 
 	adminMux.Handle("POST /api/v1/admin/scan", a(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Manual scan started')`)
+		if _, err := r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Manual scan started')`); err != nil {
+			writeError(w, "database error", http.StatusInternalServerError)
+			return
+		}
 		go func() {
 			r.scanner.ScanAll()
 			r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Scan complete')`)
@@ -351,7 +386,10 @@ func (r *Router) mountAdmin() {
 		var list []entry
 		for rows.Next() {
 			var e entry
-			rows.Scan(&e.ID, &e.Type, &e.Message, &e.CreatedAt)
+			if err := rows.Scan(&e.ID, &e.Type, &e.Message, &e.CreatedAt); err != nil {
+				writeError(w, "scan error", http.StatusInternalServerError)
+				return
+			}
 			list = append(list, e)
 		}
 		if list == nil {

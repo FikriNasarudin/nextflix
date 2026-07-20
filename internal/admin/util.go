@@ -18,3 +18,10 @@ func decodeJSON(r *http.Request, v any) error {
 	}
 	return json.Unmarshal(body, v)
 }
+
+func userIDFromContext(r *http.Request) int64 {
+	v, _ := r.Context().Value(contextKey("user_id")).(int64)
+	return v
+}
+
+type contextKey string
