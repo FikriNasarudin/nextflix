@@ -142,7 +142,7 @@ func (s *Scanner) ScanAll() {
 	}
 
 	total := 0
-	for dir, lib := range libraries {
+	for dir := range libraries {
 		fullPath := filepath.Join(s.cfg.MediaDir, dir)
 		filepath.Walk(fullPath, func(path string, fi os.FileInfo, err error) error {
 			if err != nil || fi.IsDir() {
