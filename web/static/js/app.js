@@ -80,6 +80,12 @@ async function loadAll() {
 
   storeHomeSectionStates();
 
+  // Delegated handler for nav filter buttons (Home, Movies, TV)
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-filter]');
+    if (btn) showPage(btn.dataset.filter);
+  });
+
   NextflixRouter.addRoute('/', function() { renderHomeView(); });
   NextflixRouter.addRoute('/detail/:id', function(params) { renderDetailPage(params); });
   NextflixRouter.addRoute('/browse/:section', function(params) { renderBrowsePage(params); });
@@ -677,10 +683,9 @@ function createCard(id, title, poster, progressPct, isTrending, badge) {
   img.className = 'card-poster';
   img.loading = 'lazy';
   img.alt = title;
+  img.style.background = 'var(--surface)';
   if (poster) {
     img.src = poster.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + poster : poster;
-  } else {
-    img.style.background = '#333';
   }
   img.onerror = function() {
     if (!this.dataset.fallback) {
