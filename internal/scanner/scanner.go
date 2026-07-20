@@ -298,25 +298,29 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 		return
 	}
 
-	duration := 0
-	if d, err := fmt.Sscanf(result.Format.Duration, "%f", &duration); err != nil || d == 0 {
+	var duration int
+	var durationFloat float64
+	if _, err := fmt.Sscanf(result.Format.Duration, "%f", &durationFloat); err == nil {
+		duration = int(durationFloat)
+	} else {
 		log.Printf("Scanner: parse duration %s: %v", result.Format.Duration, err)
 	}
 
-	title := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	var insertSQL string
+	var insertArgs []any
 
-	var res sql.Result
+	parsed := ParseMedia(path, mediaType, s.cfg.MediaDir)
+	title := parsed.Title
+
 	if libraryID > 0 {
-		res, err = s.db.Exec(
-			`INSERT INTO media_items (library_id, title, file_path, duration_seconds, media_type) VALUES (?, ?, ?, ?, ?)`,
-			libraryID, title, path, duration, mediaType,
-		)
+		insertSQL = `INSERT INTO media_items (library_id, title, file_path, duration_seconds, media_type, show_name, season_number, episode_number, episode_title, year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		insertArgs = []any{libraryID, title, path, duration, mediaType, parsed.ShowName, parsed.SeasonNumber, parsed.EpisodeNumber, parsed.EpisodeTitle, parsed.Year}
 	} else {
-		res, err = s.db.Exec(
-			`INSERT INTO media_items (title, file_path, duration_seconds, media_type) VALUES (?, ?, ?, ?)`,
-			title, path, duration, mediaType,
-		)
+		insertSQL = `INSERT INTO media_items (title, file_path, duration_seconds, media_type, show_name, season_number, episode_number, episode_title, year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		insertArgs = []any{title, path, duration, mediaType, parsed.ShowName, parsed.SeasonNumber, parsed.EpisodeNumber, parsed.EpisodeTitle, parsed.Year}
 	}
+
+	res, err := s.db.Exec(insertSQL, insertArgs...)
 	if err != nil {
 		log.Printf("Scanner: insert error %s: %v", path, err)
 		return

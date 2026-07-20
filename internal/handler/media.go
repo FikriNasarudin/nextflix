@@ -23,7 +23,8 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	query = `
 		SELECT id, library_id, title, media_type, tmdb_id, rating,
-		       duration_seconds, trailer_youtube_id, backdrop_path, poster_path, created_at
+		       duration_seconds, trailer_youtube_id, backdrop_path, poster_path,
+		       show_name, season_number, episode_number, episode_title, year, created_at
 		FROM media_items mi
 		WHERE 1=1
 	`
@@ -64,6 +65,11 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		TrailerYoutubeID string  `json:"trailer_youtube_id"`
 		BackdropPath     string  `json:"backdrop_path"`
 		PosterPath       string  `json:"poster_path"`
+		ShowName         string  `json:"show_name"`
+		SeasonNumber     int     `json:"season_number"`
+		EpisodeNumber    int     `json:"episode_number"`
+		EpisodeTitle     string  `json:"episode_title"`
+		Year             string  `json:"year"`
 		CreatedAt        string  `json:"created_at"`
 	}
 
@@ -72,7 +78,8 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		var i mediaItem
 		rows.Scan(
 			&i.ID, &i.LibraryID, &i.Title, &i.MediaType, &i.TmdbID, &i.Rating,
-			&i.DurationSeconds, &i.TrailerYoutubeID, &i.BackdropPath, &i.PosterPath, &i.CreatedAt,
+			&i.DurationSeconds, &i.TrailerYoutubeID, &i.BackdropPath, &i.PosterPath,
+			&i.ShowName, &i.SeasonNumber, &i.EpisodeNumber, &i.EpisodeTitle, &i.Year, &i.CreatedAt,
 		)
 		items = append(items, i)
 	}

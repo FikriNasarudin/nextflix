@@ -45,6 +45,11 @@ type MediaItem struct {
 	TrailerYoutubeID string  `json:"trailer_youtube_id"`
 	BackdropPath     string  `json:"backdrop_path"`
 	PosterPath       string  `json:"poster_path"`
+	ShowName         string  `json:"show_name"`
+	SeasonNumber     int     `json:"season_number"`
+	EpisodeNumber    int     `json:"episode_number"`
+	EpisodeTitle     string  `json:"episode_title"`
+	Year             string  `json:"year"`
 	CreatedAt        string  `json:"created_at"`
 }
 

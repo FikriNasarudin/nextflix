@@ -66,6 +66,11 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 			backdrop_path TEXT DEFAULT '',
 			poster_path TEXT DEFAULT '',
 			hls_480p_path TEXT DEFAULT '',
+			show_name TEXT DEFAULT '',
+			season_number INTEGER DEFAULT 0,
+			episode_number INTEGER DEFAULT 0,
+			episode_title TEXT DEFAULT '',
+			year TEXT DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
 
@@ -144,6 +149,13 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 
 	// v2: add library_dir column to existing libraries
 	db.Exec(`ALTER TABLE libraries ADD COLUMN library_dir TEXT DEFAULT ''`)
+
+	// v3: add TV/metadata columns to media_items
+	db.Exec(`ALTER TABLE media_items ADD COLUMN show_name TEXT DEFAULT ''`)
+	db.Exec(`ALTER TABLE media_items ADD COLUMN season_number INTEGER DEFAULT 0`)
+	db.Exec(`ALTER TABLE media_items ADD COLUMN episode_number INTEGER DEFAULT 0`)
+	db.Exec(`ALTER TABLE media_items ADD COLUMN episode_title TEXT DEFAULT ''`)
+	db.Exec(`ALTER TABLE media_items ADD COLUMN year TEXT DEFAULT ''`)
 
 	log.Println("Database migrations complete")
 	return nil
