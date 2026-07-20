@@ -50,12 +50,13 @@ let billboardItems = [];
 
 /* ===== Load All Data ===== */
 async function loadAll() {
-  const [media, progress, trending, libraries, collections] = await Promise.all([
+  const [media, progress, trending, libraries, collections, recommendations] = await Promise.all([
     NextflixAPI.fetch('/media'),
     NextflixAPI.fetch('/progress', { skipCache: true }),
     NextflixAPI.fetch('/trending'),
     NextflixAPI.fetch('/libraries'),
     NextflixAPI.fetch('/collections'),
+    NextflixAPI.fetch('/recommendations'),
   ]);
   if (!media) return;
   allMedia = media;
@@ -65,19 +66,35 @@ async function loadAll() {
 
   window._lastProgress = progress || [];
   window._lastTrending = trending || [];
+  window._lastBecause = (recommendations && recommendations.because_you_watched) || [];
 
   document.getElementById('skeletonHero').style.display = 'none';
   document.getElementById('skeletonRow').style.display = 'none';
 
   renderContinueWatching(window._lastProgress);
-  renderCollections(allCollections);
+  renderBecauseYouWatched(window._lastBecause);
+  renderNewlyAdded(allMedia);
   renderTrending(window._lastTrending);
+  renderCollections(allCollections);
   initCarousels();
 
   storeHomeSectionStates();
 
+  // View All click handlers
+  document.querySelectorAll('.row-view-all').forEach(el => {
+    el.addEventListener('click', function(e) {
+      e.stopPropagation();
+      const browse = this.dataset.browse;
+      if (browse) NextflixRouter.navigate('/browse/' + browse);
+      const nav = this.dataset.nav;
+      if (nav) NextflixRouter.navigate(nav);
+    });
+  });
+
   NextflixRouter.addRoute('/', function() { renderHomeView(); });
   NextflixRouter.addRoute('/detail/:id', function(params) { renderDetailPage(params); });
+  NextflixRouter.addRoute('/browse/:section', function(params) { renderBrowsePage(params); });
+  NextflixRouter.addRoute('/collections', function() { renderCollectionsPage(); });
   NextflixRouter.init();
   NextflixRouter.handlePath(window.location.pathname);
 }
@@ -87,8 +104,10 @@ function storeHomeSectionStates() {
   window._homeSectionStates = {
     heroDisplay: document.getElementById('hero').style.display,
     continueDisplay: document.getElementById('continueRow').style.display,
-    collectionsDisplay: document.getElementById('collectionsRow').style.display,
+    becauseDisplay: document.getElementById('becauseRow').style.display,
+    newlyDisplay: document.getElementById('newlyAddedRow').style.display,
     trendingDisplay: document.getElementById('trendingRow').style.display,
+    collectionsDisplay: document.getElementById('collectionsRow').style.display,
   };
 }
 
@@ -98,16 +117,20 @@ function hideHomeSections() {
   document.getElementById('skeletonHero').style.display = 'none';
   document.getElementById('skeletonRow').style.display = 'none';
   document.getElementById('continueRow').style.display = 'none';
-  document.getElementById('collectionsRow').style.display = 'none';
+  document.getElementById('becauseRow').style.display = 'none';
+  document.getElementById('newlyAddedRow').style.display = 'none';
   document.getElementById('trendingRow').style.display = 'none';
+  document.getElementById('collectionsRow').style.display = 'none';
 }
 
 function restoreHomeSections() {
   if (!window._homeSectionStates) return;
   document.getElementById('hero').style.display = window._homeSectionStates.heroDisplay;
   document.getElementById('continueRow').style.display = window._homeSectionStates.continueDisplay;
-  document.getElementById('collectionsRow').style.display = window._homeSectionStates.collectionsDisplay;
+  document.getElementById('becauseRow').style.display = window._homeSectionStates.becauseDisplay;
+  document.getElementById('newlyAddedRow').style.display = window._homeSectionStates.newlyDisplay;
   document.getElementById('trendingRow').style.display = window._homeSectionStates.trendingDisplay;
+  document.getElementById('collectionsRow').style.display = window._homeSectionStates.collectionsDisplay;
 }
 
 function renderHomeView() {
@@ -256,28 +279,153 @@ function renderMoviesPage() {
   const movies = allMedia.filter(m => m.media_type === 'movie');
   initBillboard(movies);
 
+  const continueMovies = (window._lastProgress || []).filter(p => {
+    const m = allMedia.find(x => x.id == p.media_id);
+    return m && m.media_type === 'movie';
+  });
+  const becauseMovies = (window._lastBecause || []).filter(b => {
+    const m = allMedia.find(x => x.id == b.media_id);
+    return m && m.media_type === 'movie';
+  });
+  const movieTrending = (window._lastTrending || []).filter(t => t.media_type === 'movie');
+
+  // Render into home sections (they're in the DOM but hidden)
+  const continueContainer = document.getElementById('continueContainer');
+  const becauseContainer = document.getElementById('becauseContainer');
+  const newlyContainer = document.getElementById('newlyAddedContainer');
+  const trendingContainer = document.getElementById('trendingContainer');
+
+  document.getElementById('collectionsRow').style.display = 'none';
+
+  if (continueMovies.length) {
+    document.getElementById('continueRow').style.display = 'block';
+    document.getElementById('continueRow').querySelector('.row-title').innerHTML = 'Continue Watching <span class="row-view-all" data-browse="continue">View All →</span>';
+    continueContainer.innerHTML = '';
+    continueMovies.forEach(p => {
+      const pct = p.duration_seconds ? Math.min(100, (p.position_seconds / p.duration_seconds) * 100) : 0;
+      continueContainer.appendChild(createCard(p.media_id, p.title, p.poster_path, pct, false));
+    });
+  } else {
+    document.getElementById('continueRow').style.display = 'none';
+  }
+
+  if (becauseMovies.length) {
+    document.getElementById('becauseRow').style.display = 'block';
+    document.getElementById('becauseRow').querySelector('.row-title').innerHTML = 'Because You Watched <span class="row-view-all" data-browse="recommended">View All →</span>';
+    becauseContainer.innerHTML = '';
+    becauseMovies.forEach(b => becauseContainer.appendChild(createCard(b.media_id, b.title, b.poster_path, 0, false)));
+  } else {
+    document.getElementById('becauseRow').style.display = 'none';
+  }
+
+  document.getElementById('newlyAddedRow').style.display = 'block';
+  document.getElementById('newlyAddedRow').querySelector('.row-title').innerHTML = 'Newly Added Movies <span class="row-view-all" data-browse="new">View All →</span>';
+  newlyContainer.innerHTML = '';
+  const newMovies = movies.slice(0, 15);
+  newMovies.forEach(m => newlyContainer.appendChild(createCard(m.id, m.title, m.poster_path, 0, false, 'NEW')));
+
+  if (movieTrending.length) {
+    document.getElementById('trendingRow').style.display = 'block';
+    document.getElementById('trendingRow').querySelector('.row-title').innerHTML = 'Top 10 Movies <span class="row-view-all" data-browse="trending">View All →</span>';
+    trendingContainer.innerHTML = '';
+    movieTrending.forEach((t, idx) => {
+      const card = createCard(null, t.title, t.poster_path, 0, true);
+      const rank = document.createElement('div');
+      rank.className = 'card-rank';
+      rank.textContent = idx + 1;
+      card.appendChild(rank);
+      trendingContainer.appendChild(card);
+    });
+    trendingContainer.classList.add('row-trending');
+  } else {
+    document.getElementById('trendingRow').style.display = 'none';
+  }
+
   const content = document.getElementById('pageContent');
   content.innerHTML = `
     <section class="row-section">
-      <h2 class="row-title">Movies</h2>
+      <h2 class="row-title">All Movies</h2>
       <div class="grid" id="mediaGrid"></div>
     </section>
   `;
   renderGrid(movies);
+  initCarousels();
 }
 
 function renderTVPage() {
   const tv = allMedia.filter(m => m.media_type === 'tv');
   initBillboard(tv);
 
+  const continueTV = (window._lastProgress || []).filter(p => {
+    const m = allMedia.find(x => x.id == p.media_id);
+    return m && m.media_type === 'tv';
+  });
+  const becauseTV = (window._lastBecause || []).filter(b => {
+    const m = allMedia.find(x => x.id == b.media_id);
+    return m && m.media_type === 'tv';
+  });
+  const tvTrending = (window._lastTrending || []).filter(t => t.media_type === 'tv');
+
+  const continueContainer = document.getElementById('continueContainer');
+  const becauseContainer = document.getElementById('becauseContainer');
+  const newlyContainer = document.getElementById('newlyAddedContainer');
+  const trendingContainer = document.getElementById('trendingContainer');
+
+  document.getElementById('collectionsRow').style.display = 'none';
+
+  if (continueTV.length) {
+    document.getElementById('continueRow').style.display = 'block';
+    document.getElementById('continueRow').querySelector('.row-title').innerHTML = 'Continue Watching <span class="row-view-all" data-browse="continue">View All →</span>';
+    continueContainer.innerHTML = '';
+    continueTV.forEach(p => {
+      const pct = p.duration_seconds ? Math.min(100, (p.position_seconds / p.duration_seconds) * 100) : 0;
+      continueContainer.appendChild(createCard(p.media_id, p.title, p.poster_path, pct, false));
+    });
+  } else {
+    document.getElementById('continueRow').style.display = 'none';
+  }
+
+  if (becauseTV.length) {
+    document.getElementById('becauseRow').style.display = 'block';
+    document.getElementById('becauseRow').querySelector('.row-title').innerHTML = 'Because You Watched <span class="row-view-all" data-browse="recommended">View All →</span>';
+    becauseContainer.innerHTML = '';
+    becauseTV.forEach(b => becauseContainer.appendChild(createCard(b.media_id, b.title, b.poster_path, 0, false)));
+  } else {
+    document.getElementById('becauseRow').style.display = 'none';
+  }
+
+  document.getElementById('newlyAddedRow').style.display = 'block';
+  document.getElementById('newlyAddedRow').querySelector('.row-title').innerHTML = 'Newly Added TV <span class="row-view-all" data-browse="new">View All →</span>';
+  newlyContainer.innerHTML = '';
+  const newTV = tv.slice(0, 15);
+  newTV.forEach(m => newlyContainer.appendChild(createCard(m.id, m.title, m.poster_path, 0, false, 'NEW')));
+
+  if (tvTrending.length) {
+    document.getElementById('trendingRow').style.display = 'block';
+    document.getElementById('trendingRow').querySelector('.row-title').innerHTML = 'Top 10 TV <span class="row-view-all" data-browse="trending">View All →</span>';
+    trendingContainer.innerHTML = '';
+    tvTrending.forEach((t, idx) => {
+      const card = createCard(null, t.title, t.poster_path, 0, true);
+      const rank = document.createElement('div');
+      rank.className = 'card-rank';
+      rank.textContent = idx + 1;
+      card.appendChild(rank);
+      trendingContainer.appendChild(card);
+    });
+    trendingContainer.classList.add('row-trending');
+  } else {
+    document.getElementById('trendingRow').style.display = 'none';
+  }
+
   const content = document.getElementById('pageContent');
   content.innerHTML = `
     <section class="row-section">
-      <h2 class="row-title">TV Shows</h2>
+      <h2 class="row-title">All TV Shows</h2>
       <div class="grid" id="mediaGrid"></div>
     </section>
   `;
   renderGrid(tv);
+  initCarousels();
 }
 
 /* ===== Continue Watching ===== */
@@ -399,8 +547,124 @@ function renderTrending(trending) {
   });
 }
 
+/* ===== Because You Watched ===== */
+function renderBecauseYouWatched(items) {
+  const container = document.getElementById('becauseContainer');
+  const section = document.getElementById('becauseRow');
+  if (!items.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  container.innerHTML = '';
+  items.forEach(item => {
+    const card = createCard(item.media_id, item.title, item.poster_path, 0, false);
+    container.appendChild(card);
+  });
+}
+
+/* ===== Newly Added ===== */
+function renderNewlyAdded(media) {
+  const container = document.getElementById('newlyAddedContainer');
+  const section = document.getElementById('newlyAddedRow');
+  const slice = media.slice(0, 15);
+  if (!slice.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  container.innerHTML = '';
+  slice.forEach(m => {
+    const card = createCard(m.id, m.title, m.poster_path, 0, false, 'NEW');
+    container.appendChild(card);
+  });
+}
+
+/* ===== Browse Page (View All) ===== */
+function renderBrowsePage(params) {
+  hideHomeSections();
+  const content = document.getElementById('pageContent');
+  let items = [];
+  let title = '';
+
+  switch (params.section) {
+    case 'continue':
+      items = window._lastProgress || [];
+      title = 'Continue Watching';
+      content.innerHTML = makeGridPage(title);
+      items.forEach(p => {
+        const pct = p.duration_seconds ? Math.min(100, (p.position_seconds / p.duration_seconds) * 100) : 0;
+        document.getElementById('mediaGrid').appendChild(createCard(p.media_id, p.title, p.poster_path, pct, false));
+      });
+      return;
+    case 'recommended':
+      items = window._lastBecause || [];
+      title = 'Because You Watched';
+      content.innerHTML = makeGridPage(title);
+      items.forEach(i => document.getElementById('mediaGrid').appendChild(createCard(i.media_id, i.title, i.poster_path, 0, false)));
+      return;
+    case 'new':
+      title = 'Newly Added';
+      content.innerHTML = makeGridPage(title);
+      allMedia.forEach(m => document.getElementById('mediaGrid').appendChild(createCard(m.id, m.title, m.poster_path, 0, false)));
+      return;
+    case 'trending':
+      items = window._lastTrending || [];
+      title = 'Daily Top 10';
+      content.innerHTML = makeGridPage(title);
+      items.forEach((t, idx) => {
+        const card = createCard(null, t.title, t.poster_path, 0, true);
+        const rank = document.createElement('div');
+        rank.className = 'card-rank';
+        rank.textContent = idx + 1;
+        card.appendChild(rank);
+        document.getElementById('mediaGrid').appendChild(card);
+      });
+      return;
+    default:
+      title = 'Browse';
+      content.innerHTML = makeGridPage(title);
+  }
+  initCarousels();
+}
+
+function makeGridPage(title) {
+  return `<section class="row-section"><h2 class="row-title">${title}</h2><div class="grid" id="mediaGrid"></div></section>`;
+}
+
+/* ===== Collections Page ===== */
+function renderCollectionsPage() {
+  hideHomeSections();
+  const content = document.getElementById('pageContent');
+  if (!allCollections.length) {
+    content.innerHTML = '<div class="empty-state"><p>No collections yet</p></div>';
+    return;
+  }
+  content.innerHTML = `
+    <section class="row-section">
+      <h2 class="row-title">All Collections</h2>
+      <div class="collections-grid" id="collectionsGrid"></div>
+    </section>
+  `;
+  const grid = document.getElementById('collectionsGrid');
+  allCollections.forEach(c => {
+    const div = document.createElement('div');
+    div.className = 'card collection-card';
+    const img = document.createElement('img');
+    img.className = 'card-poster';
+    img.loading = 'lazy';
+    img.alt = c.name;
+    if (c.poster_path) {
+      img.src = c.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + c.poster_path : c.poster_path;
+    } else {
+      img.style.background = '#333';
+    }
+    div.appendChild(img);
+    const title = document.createElement('div');
+    title.className = 'card-title';
+    title.textContent = c.name;
+    div.appendChild(title);
+    div.addEventListener('click', () => showCollection(c));
+    grid.appendChild(div);
+  });
+}
+
 /* ===== Card ===== */
-function createCard(id, title, poster, progressPct, isTrending) {
+function createCard(id, title, poster, progressPct, isTrending, badge) {
   const div = document.createElement('div');
   div.className = 'card';
   div.dataset.id = id;
@@ -467,6 +731,13 @@ function createCard(id, title, poster, progressPct, isTrending) {
     hlsBadge.className = 'card-badge-480p';
     hlsBadge.textContent = 'HD';
     div.appendChild(hlsBadge);
+  }
+
+  if (badge) {
+    const b = document.createElement('span');
+    b.className = 'card-badge-new';
+    b.textContent = badge;
+    div.appendChild(b);
   }
 
   if (!isTrending) {
