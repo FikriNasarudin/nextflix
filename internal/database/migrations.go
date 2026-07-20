@@ -64,6 +64,7 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 			trailer_youtube_id TEXT DEFAULT '',
 			backdrop_path TEXT DEFAULT '',
 			poster_path TEXT DEFAULT '',
+			hls_480p_path TEXT DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
 

@@ -13,6 +13,8 @@ cd nextflix
 docker compose up -d
 ```
 
+On startup, the **Scanner** walks the media directory and probes new video files with `ffprobe`. HD videos (≥720p) are automatically queued for background **480p HLS encoding** via `nice -n 19 ffmpeg`.
+
 Open **http://localhost:8080** — first-run credentials:
 
 ```
@@ -158,8 +160,10 @@ docker compose up --build   # Build & run in container
 
 Requires:
 - Go 1.22+
-- `ffmpeg` in PATH (for scanner probing, encoding, remuxing)
+- `ffmpeg` and `ffprobe` in PATH (for scanner probing, encoding, remuxing)
 - C compiler (for `mattn/go-sqlite3` — `gcc` or `musl-gcc`)
+
+On startup, the server runs a full media scan and starts a filesystem watcher. New video files placed in the media directory are automatically detected, probed, and queued for 480p HLS conversion.
 
 ## Architecture
 

@@ -6,14 +6,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"nextflix/internal/auth"
 	"nextflix/internal/config"
 	"nextflix/internal/database"
+	"nextflix/internal/encoder"
 	"nextflix/internal/handler"
-	"strconv"
+	"nextflix/internal/scanner"
 )
 
 func main() {
@@ -47,6 +49,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to init auth: %v", err)
 	}
+
+	encoderCh := make(chan scanner.EncoderJob, 100)
+	enc := encoder.New(db, cfg.Encoder, encoderCh)
+	enc.Start()
+
+	scn := scanner.New(db, cfg.Scanner, encoderCh)
+	scn.Watch()
+	go scn.ScanAll()
 
 	srv := &http.Server{
 		Addr:         addr(cfg.Server.Port),
