@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os/exec"
 	"strconv"
 	"time"
 
@@ -53,6 +54,7 @@ func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, scanFn func()) 
 	r.mountAssets()
 	r.mountCollections()
 	r.mountFrontend()
+	r.mountHealth()
 	r.mountAdmin()
 
 	log.Println("Routes registered")
@@ -82,6 +84,20 @@ func (r *Router) mountMedia() {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(libs)
 	})))
+}
+
+func (r *Router) mountHealth() {
+	r.mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, req *http.Request) {
+		dbOK := r.db.Ping() == nil
+		_, ffmpegOK := exec.LookPath("ffmpeg")
+		_, ffprobeOK := exec.LookPath("ffprobe")
+		writeJSON(w, map[string]any{
+			"status":  "ok",
+			"db":      dbOK,
+			"ffmpeg":  ffmpegOK == nil,
+			"ffprobe": ffprobeOK == nil,
+		})
+	})
 }
 
 func (r *Router) mountStreaming() {

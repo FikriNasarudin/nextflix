@@ -3,6 +3,8 @@ let CURRENT_QUALITY = 'direct';
 let VIDEO_ID = null;
 let DURATION = 0;
 let hlsInstance = null;
+let currentItem = null;
+let showEpisodes = [];
 
 function getToken() { return localStorage.getItem('token'); }
 
@@ -32,13 +34,18 @@ function getParams() {
 }
 
 async function loadMedia(id) {
-  const res = await apiFetch('/media');
-  if (!res) return;
-  const all = await res.json();
+  const all = window._nextflixMedia || (await (await apiFetch('/media')).json());
   const item = all.find(m => m.id == id);
   if (!item) { document.getElementById('playerTitle').textContent = 'Not found'; return; }
+  currentItem = item;
   VIDEO_ID = item.id;
   DURATION = item.duration_seconds;
+  showEpisodes = all.filter(m =>
+    m.show_name === item.show_name &&
+    m.season_number > 0 &&
+    m.episode_number > 0
+  ).sort((a, b) => a.season_number - b.season_number || a.episode_number - b.episode_number);
+
   document.getElementById('playerTitle').textContent = item.title;
   const meta = document.getElementById('playerMeta');
   const parts = [];
@@ -87,14 +94,79 @@ function onAudioChange(value) {
   }
 }
 
+function switchEpisode(ep) {
+  currentItem = ep;
+  VIDEO_ID = ep.id;
+  DURATION = ep.duration_seconds;
+  document.getElementById('playerTitle').textContent = ep.title;
+  document.getElementById('playerMeta').querySelector('h2').textContent = ep.title;
+  document.getElementById('playerMeta').querySelector('p').textContent = ep.overview || '';
+  const drawer = document.getElementById('episodeDrawer');
+  if (drawer) drawer.style.display = 'none';
+
+  if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+  CURRENT_QUALITY = 'direct';
+  document.getElementById('qualityBtn').textContent = 'direct';
+  playSource();
+}
+
 function initPlayer(item) {
   const video = document.getElementById('video');
   const qualityBtn = document.getElementById('qualityBtn');
   const subSelect = document.getElementById('subtitleSelect');
   const audioSelect = document.getElementById('audioSelect');
+  const episodesBtn = document.getElementById('episodesBtn');
+  const drawer = document.getElementById('episodeDrawer');
+  const drawerClose = document.getElementById('drawerClose');
+  const drawerSeasonSelect = document.getElementById('drawerSeasonSelect');
+  const drawerEpisodeList = document.getElementById('drawerEpisodeList');
 
   subSelect.addEventListener('change', () => onSubtitleChange(subSelect.value));
   audioSelect.addEventListener('change', () => onAudioChange(audioSelect.value));
+
+  const isTV = item.media_type === 'tv' && item.show_name && showEpisodes.length > 0;
+
+  if (isTV) {
+    episodesBtn.style.display = 'inline-block';
+    episodesBtn.onclick = () => {
+      drawer.style.display = 'block';
+      populateDrawer();
+    };
+    drawerClose.onclick = () => { drawer.style.display = 'none'; };
+    drawer.addEventListener('click', (e) => {
+      if (e.target === drawer) drawer.style.display = 'none';
+    });
+  }
+
+  function populateDrawer() {
+    const seasons = [...new Set(showEpisodes.map(m => m.season_number))].sort((a, b) => a - b);
+    drawerSeasonSelect.innerHTML = seasons.map(s => `<option value="${s}">Season ${s}</option>`).join('');
+    function renderSeason(seasonNum) {
+      const eps = showEpisodes.filter(m => m.season_number === seasonNum);
+      drawerEpisodeList.innerHTML = eps.map(ep => {
+        const epPoster = ep.poster_path
+          ? (ep.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w200' + ep.poster_path : ep.poster_path)
+          : '';
+        return `
+          <div class="episode-item" data-id="${ep.id}">
+            <img class="episode-thumb" src="${epPoster || ''}" alt="" onerror="this.classList.add('skeleton');this.src=''" loading="lazy">
+            <div class="episode-info">
+              <div class="episode-num">S${ep.season_number} · E${ep.episode_number}</div>
+              <div class="episode-name">${ep.episode_title || ep.title}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      drawerEpisodeList.querySelectorAll('.episode-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const found = showEpisodes.find(m => m.id == el.dataset.id);
+          if (found) switchEpisode(found);
+        });
+      });
+    }
+    drawerSeasonSelect.onchange = () => renderSeason(parseInt(drawerSeasonSelect.value));
+    renderSeason(seasons[0] || (showEpisodes.length ? showEpisodes[0].season_number : 1));
+  }
 
   function populateTracks() {
     if (window._extSubs && window._extSubs.length) {
@@ -191,7 +263,10 @@ function initPlayer(item) {
       });
     }
 
-    video.onerror = trySource;
+    video.onerror = function(e) {
+      console.error('playSource: source error', video.error ? 'code=' + video.error.code + ' msg=' + video.error.message : 'unknown');
+      trySource();
+    };
     trySource();
   }
 
@@ -202,6 +277,11 @@ function initPlayer(item) {
   });
 
   playSource();
+
+  video.onended = () => {
+    if (isTV) triggerNextEpisode(item);
+    else triggerMovieEnd(item);
+  };
 
   setInterval(async () => {
     if (!VIDEO_ID || !video.currentTime) return;
@@ -216,6 +296,77 @@ function initPlayer(item) {
       }),
     });
   }, 10000);
+}
+
+function triggerNextEpisode(item) {
+  const idx = showEpisodes.findIndex(ep => ep.id === item.id);
+  const nextEp = idx >= 0 && idx < showEpisodes.length - 1 ? showEpisodes[idx + 1] : null;
+  if (!nextEp) return;
+
+  const overlay = document.getElementById('nextEpisodeOverlay');
+  const timerEl = document.getElementById('nextEpisodeTimer');
+  const titleEl = document.getElementById('nextEpisodeTitle');
+  const cancelBtn = document.getElementById('nextEpisodeCancel');
+  let countdown = 8;
+
+  titleEl.textContent = nextEp.title;
+  timerEl.textContent = 'Next episode in ' + countdown + 's';
+  overlay.style.display = 'flex';
+
+  const timer = setInterval(() => {
+    countdown--;
+    timerEl.textContent = 'Next episode in ' + countdown + 's';
+    if (countdown <= 0) {
+      clearInterval(timer);
+      overlay.style.display = 'none';
+      switchEpisode(nextEp);
+    }
+  }, 1000);
+
+  cancelBtn.onclick = () => {
+    clearInterval(timer);
+    overlay.style.display = 'none';
+  };
+}
+
+function triggerMovieEnd(item) {
+  const overlay = document.getElementById('movieEndOverlay');
+  const row = document.getElementById('movieEndRow');
+  const backBtn = document.getElementById('movieEndBack');
+
+  const all = window._nextflixMedia || [];
+  const similar = all
+    .filter(m => m.id !== item.id && m.media_type === item.media_type)
+    .sort(() => Math.random() - 0.5)
+    .slice(0, 6);
+
+  row.innerHTML = '';
+  similar.forEach(m => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const img = document.createElement('img');
+    img.className = 'card-poster';
+    img.loading = 'lazy';
+    img.alt = m.title;
+    if (m.poster_path) {
+      img.src = m.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + m.poster_path : m.poster_path;
+    } else {
+      img.style.background = '#333';
+    }
+    card.appendChild(img);
+    const title = document.createElement('div');
+    title.className = 'card-title';
+    title.textContent = m.title;
+    card.appendChild(title);
+    card.addEventListener('click', () => {
+      overlay.style.display = 'none';
+      switchEpisode(m);
+    });
+    row.appendChild(card);
+  });
+
+  backBtn.onclick = () => { window.location.href = '/'; };
+  overlay.style.display = 'flex';
 }
 
 const token = getToken();

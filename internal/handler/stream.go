@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -86,30 +87,55 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		http.Error(w, "ffprobe not available", http.StatusInternalServerError)
+		return
+	}
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		http.Error(w, "ffmpeg not available", http.StatusInternalServerError)
 		return
 	}
 
-	cmd := exec.Command("ffmpeg",
-		"-i", filePath,
-		"-c:v", "copy",
-		"-c:a", "aac",
-		"-sn",
-		"-movflags", "frag_keyframe+empty_moov",
-		"-fflags", "nobuffer",
-		"-f", "mp4",
-		"pipe:1",
-	)
+	codec := probeVideoCodec(filePath)
+	tryCopy := codec == "h264" || codec == "hevc" || codec == ""
+
+	var cmd *exec.Cmd
+	if tryCopy {
+		cmd = exec.Command("ffmpeg",
+			"-i", filePath,
+			"-c:v", "copy",
+			"-c:a", "aac",
+			"-sn",
+			"-movflags", "frag_keyframe+empty_moov",
+			"-f", "mp4",
+			"pipe:1",
+		)
+	} else {
+		log.Printf("Remux: transcoding id=%d codec=%s to h264", id, codec)
+		cmd = exec.Command("ffmpeg",
+			"-i", filePath,
+			"-c:v", "libx264",
+			"-preset", "veryfast",
+			"-crf", "28",
+			"-c:a", "aac",
+			"-sn",
+			"-movflags", "frag_keyframe+empty_moov",
+			"-f", "mp4",
+			"pipe:1",
+		)
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		http.Error(w, "ffmpeg error", http.StatusInternalServerError)
 		return
 	}
-	cmd.Stderr = nil
+
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
+		log.Printf("Remux: start failed for id=%d: %v, stderr: %s", id, err, stderrBuf.String())
 		http.Error(w, "ffmpeg error", http.StatusInternalServerError)
 		return
 	}
@@ -121,8 +147,24 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, stdout)
 
 	if err := cmd.Wait(); err != nil {
-		log.Printf("Remux: ffmpeg failed for id=%d path=%s: %v", id, filePath, err)
+		log.Printf("Remux: ffmpeg failed for id=%d codec=%s tryCopy=%t: %v", id, codec, tryCopy, err)
+		log.Printf("Remux: ffmpeg stderr: %s", stderrBuf.String())
 	}
+}
+
+func probeVideoCodec(filePath string) string {
+	cmd := exec.Command("ffprobe",
+		"-v", "quiet",
+		"-select_streams", "v:0",
+		"-show_entries", "stream=codec_name",
+		"-of", "csv=p=0",
+		filePath,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func (h *StreamHandler) HLSFile(w http.ResponseWriter, r *http.Request) {

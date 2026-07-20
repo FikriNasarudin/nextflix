@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"syscall"
@@ -36,6 +37,16 @@ func main() {
 	log.Printf("Starting Nextflix — %s v0.1.0", cfg.UI.AppTitle)
 	log.Printf("Media directory: %s", cfg.Scanner.MediaDir)
 	log.Printf("Database: %s", cfg.Database.Path)
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		log.Printf("WARNING: ffmpeg not found in PATH — remux and HLS encoding disabled")
+	} else {
+		log.Printf("ffmpeg found")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		log.Printf("WARNING: ffprobe not found in PATH — codec detection disabled")
+	} else {
+		log.Printf("ffprobe found")
+	}
 
 	db, err := database.Open(cfg.Database)
 	if err != nil {

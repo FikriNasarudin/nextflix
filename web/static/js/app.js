@@ -89,6 +89,7 @@ async function loadAll() {
   if (!mediaRes) return;
   const media = await mediaRes.json();
   allMedia = media;
+  window._nextflixMedia = media;
   const progress = progressRes ? await progressRes.json() : [];
   const trending = trendingRes ? await trendingRes.json() : [];
   const libraries = libRes ? await libRes.json() : [];
@@ -405,6 +406,25 @@ function createCard(id, title, poster, progressPct, isTrending) {
     div.appendChild(badge);
   }
 
+  if (item) {
+    const info = document.createElement('span');
+    info.className = 'card-info';
+    if (item.media_type === 'movie') {
+      const parts = [];
+      if (item.year) parts.push(item.year);
+      if (item.duration_seconds) {
+        const h = Math.floor(item.duration_seconds / 3600);
+        const m = Math.floor((item.duration_seconds % 3600) / 60);
+        parts.push(h + 'h ' + m + 'm');
+      }
+      info.textContent = parts.join(' ');
+    } else if (item.media_type === 'tv') {
+      const eps = allMedia.filter(m => m.show_name === item.show_name && m.episode_number > 0);
+      if (eps.length) info.textContent = eps.length + ' ep' + (eps.length > 1 ? 's' : '');
+    }
+    if (info.textContent) div.appendChild(info);
+  }
+
   if (!isTrending) {
     const titleEl = document.createElement('div');
     titleEl.className = 'card-title';
@@ -635,7 +655,10 @@ function playMedia(item) {
     });
   }
 
-  video.onerror = trySource;
+  video.onerror = function(e) {
+    console.error('playMedia: source error', video.error ? 'code=' + video.error.code + ' msg=' + video.error.message : 'unknown');
+    trySource();
+  };
   trySource();
 }
 

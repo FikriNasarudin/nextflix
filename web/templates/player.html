@@ -1,15 +1,45 @@
 {{define "content"}}
 <div class="player-wrapper">
   <a href="/" class="player-back">← Back to Browse</a>
-  <video id="video" class="player-video" controls autoplay></video>
+  <div class="player-video-container">
+    <video id="video" class="player-video" controls autoplay></video>
+
+    <div id="nextEpisodeOverlay" class="next-episode-overlay" style="display:none">
+      <div class="next-episode-info">
+        <span id="nextEpisodeTimer"></span>
+        <span id="nextEpisodeTitle" style="font-weight:500"></span>
+      </div>
+      <div>
+        <button id="nextEpisodeCancel" class="quality-btn">Cancel</button>
+      </div>
+    </div>
+
+    <div id="movieEndOverlay" class="movie-end-overlay" style="display:none">
+      <h3 class="detail-section-title">More Like This</h3>
+      <div class="row" id="movieEndRow"></div>
+      <button id="movieEndBack" class="quality-btn" style="margin-top:8px">Back to Browse</button>
+    </div>
+  </div>
+
   <div class="player-controls">
     <button id="qualityBtn" class="quality-btn">480p</button>
+    <button id="episodesBtn" class="quality-btn" style="display:none">Episodes</button>
     <span class="player-title" id="playerTitle"></span>
     <select id="subtitleSelect" class="track-select" style="display:none"><option value="">Subtitles</option></select>
     <select id="audioSelect" class="track-select" style="display:none"><option value="">Audio</option></select>
   </div>
   <div class="player-meta" id="playerMeta"></div>
 </div>
+
+<div id="episodeDrawer" class="episode-drawer" style="display:none">
+  <div class="episode-drawer-header">
+    <span style="font-weight:600">Episodes</span>
+    <select id="drawerSeasonSelect" class="track-select"></select>
+    <button id="drawerClose" class="player-overlay-close">✕</button>
+  </div>
+  <div class="episode-drawer-list" id="drawerEpisodeList"></div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script src="/static/js/player.js"></script>
 {{end}}
