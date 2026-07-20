@@ -147,51 +147,21 @@ SQLite3 with WAL mode. 12 tables managed via raw SQL (no ORM). Schema is auto-cr
 | `/admin/media` | Media manager |
 | `/admin/settings` | App settings |
 
-## Development
-
-```bash
-# Install Go 1.22+, then:
-go run .                    # Run directly
-CGO_ENABLED=1 go build .    # Build static binary
-docker compose up --build   # Build & run in container
-```
-
 ## Prerequisites
 
-### Docker (recommended — zero manual setup)
-
-Docker handles Go, ffmpeg, and C compiler automatically. Just run:
+Only **Docker**. The image bundles Go 1.22, ffmpeg, ffprobe, and a C compiler — nothing else needed on your host:
 
 ```bash
 docker compose up --build -d
 ```
 
-### Ubuntu / Debian
+## Development
+
+Run outside Docker (requires Go 1.22+, ffmpeg, and gcc):
 
 ```bash
-# Install Go 1.22+
-wget -q https://go.dev/dl/go1.22.12.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.22.12.linux-amd64.tar.gz
-echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
-export PATH=$PATH:/usr/local/go/bin
-
-# Install ffmpeg, ffprobe, and C compiler
-sudo apt update && sudo apt install -y ffmpeg gcc musl-dev
-```
-
-### macOS (Homebrew)
-
-```bash
-brew install go ffmpeg
-```
-
-### Verify
-
-```bash
-go version    # must be 1.22+
-ffmpeg -version   # must work
-ffprobe -version  # must work
-gcc --version # must work
+go run .
+CGO_ENABLED=1 go build .
 ```
 
 On startup, the server runs a full media scan and starts a filesystem watcher. New video files placed in the media directory are automatically detected, probed, and queued for 480p HLS conversion.
