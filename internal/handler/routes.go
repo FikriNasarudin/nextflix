@@ -2,6 +2,7 @@ package handler
 
 import (
 	"database/sql"
+	"encoding/json"
 	"html/template"
 	"log"
 	"net/http"
@@ -56,6 +57,26 @@ func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string) *Router {
 func (r *Router) mountMedia() {
 	mh := NewMediaHandler(r.db)
 	r.mux.Handle("GET /api/v1/media", r.authMid(http.HandlerFunc(mh.List)))
+	r.mux.Handle("GET /api/v1/libraries", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		rows, err := r.db.Query(`SELECT id, name FROM libraries ORDER BY name`)
+		if err != nil {
+			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		type lib struct {
+			ID   int64  `json:"id"`
+			Name string `json:"name"`
+		}
+		var libs []lib
+		for rows.Next() {
+			var l lib
+			rows.Scan(&l.ID, &l.Name)
+			libs = append(libs, l)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(libs)
+	})))
 }
 
 func (r *Router) mountStreaming() {

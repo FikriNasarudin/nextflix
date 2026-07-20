@@ -24,6 +24,7 @@ type loginRequest struct {
 
 type loginResponse struct {
 	Token    string           `json:"token"`
+	Role     string           `json:"role"`
 	Profiles []profileSummary `json:"profiles"`
 }
 
@@ -96,7 +97,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := loginResponse{Token: token, Profiles: profiles}
+	resp := loginResponse{Token: token, Role: role, Profiles: profiles}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }

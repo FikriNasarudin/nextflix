@@ -70,27 +70,39 @@ async function renderDashboard(el) {
     </div>`;
 }
 
+function renderUserRows(users, filter) {
+  const tbody = document.getElementById('userTableBody');
+  const filtered = filter ? users.filter(u => u.username.toLowerCase().includes(filter.toLowerCase())) : users;
+  tbody.innerHTML = filtered.map(u => `
+    <tr>
+      <td>${u.id}</td>
+      <td>${u.username}</td>
+      <td><span class="tag-badge">${u.role}</span></td>
+      <td>${u.is_active ? '✔' : '✘'}</td>
+      <td>
+        <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})">Edit</button>
+        <button class="btn btn-sm btn-outline" onclick="viewProfiles(${u.id})">Profiles</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">Del</button>
+      </td>
+    </tr>
+  `).join('');
+  if (!filtered.length) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">No users found</td></tr>';
+}
+
 async function renderUsers(el) {
   const users = await api('/users') || [];
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h1>Users</h1>
-      <button class="btn btn-primary" id="addUserBtn">+ Add User</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="userSearch" placeholder="Search users..." style="padding:8px 12px;border:1px solid #333;border-radius:4px;background:#2a2a2a;color:var(--text);font-size:.85rem;width:200px">
+        <button class="btn btn-primary" id="addUserBtn">+ Add User</button>
+      </div>
     </div>
-    <table class="admin-table"><thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Active</th><th>Actions</th></tr></thead><tbody>
-      ${users.map(u => `<tr>
-        <td>${u.id}</td>
-        <td>${u.username}</td>
-        <td><span class="tag-badge">${u.role}</span></td>
-        <td>${u.is_active ? '✔' : '✘'}</td>
-        <td>
-          <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})">Edit</button>
-          <button class="btn btn-sm btn-outline" onclick="viewProfiles(${u.id})">Profiles</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">Del</button>
-        </td>
-      </tr>`).join('')}
+    <table class="admin-table"><thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Active</th><th>Actions</th></tr></thead><tbody id="userTableBody">
     </tbody></table>`;
-
+  renderUserRows(users, '');
+  document.getElementById('userSearch').addEventListener('input', e => renderUserRows(users, e.target.value));
   document.getElementById('addUserBtn').onclick = () => {
     modal('Add User', `
       <div class="form-row"><label>Username</label><input name="username" placeholder="Username"></div>
@@ -315,26 +327,40 @@ async function renderMedia(el) {
     api('/media'), api('/tags'), api('/libraries'),
   ]);
   el.innerHTML = `
-    <h1>Media</h1>
-    <table class="admin-table"><thead><tr><th>ID</th><th>Title</th><th>Library</th><th>Rating</th><th>Duration</th><th>Tags</th><th>Actions</th></tr></thead><tbody>
-      ${(media||[]).map(m => `
-        <tr>
-          <td>${m.id}</td>
-          <td>${m.title}</td>
-          <td>${(libraries||[]).find(l=>l.id===m.library_id)?.name || '—'}</td>
-          <td>${m.rating || '—'}</td>
-          <td>${Math.floor(m.duration_seconds/60)}m</td>
-          <td id="mediaTags${m.id}">Loading...</td>
-          <td>
-            <button class="btn btn-sm btn-outline" onclick="editMedia(${m.id})">Edit</button>
-          </td>
-        </tr>
-      `).join('')}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h1>Media</h1>
+      <input id="mediaSearch" placeholder="Search media..." style="padding:8px 12px;border:1px solid #333;border-radius:4px;background:#2a2a2a;color:var(--text);font-size:.85rem;width:240px">
+    </div>
+    <table class="admin-table"><thead><tr><th>ID</th><th>Title</th><th>Library</th><th>Rating</th><th>Duration</th><th>Tags</th><th>Actions</th></tr></thead><tbody id="mediaTableBody">
     </tbody></table>`;
+  renderMediaRows(media || [], libraries || [], '');
+  document.getElementById('mediaSearch').addEventListener('input', e => renderMediaRows(media || [], libraries || [], e.target.value));
 
-  for (const m of (media||[])) {
-    const mt = await api('/media/' + m.id + '/tags') || [];
-    document.getElementById('mediaTags' + m.id).innerHTML = mt.map(t => `<span class="tag-badge">${t.name}</span>`).join('');
+}
+
+function renderMediaRows(media, libraries, filter) {
+  const tbody = document.getElementById('mediaTableBody');
+  const filtered = filter ? media.filter(m => m.title.toLowerCase().includes(filter.toLowerCase())) : media;
+  tbody.innerHTML = filtered.map(m => `
+    <tr>
+      <td>${m.id}</td>
+      <td>${m.title}</td>
+      <td>${(libraries||[]).find(l=>l.id===m.library_id)?.name || '—'}</td>
+      <td>${m.rating || '—'}</td>
+      <td>${Math.floor(m.duration_seconds/60)}m</td>
+      <td id="mediaTags${m.id}">Loading...</td>
+      <td>
+        <button class="btn btn-sm btn-outline" onclick="editMedia(${m.id})">Edit</button>
+      </td>
+    </tr>
+  `).join('');
+  if (!filtered.length) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No media found</td></tr>';
+
+  for (const m of filtered) {
+    api('/media/' + m.id + '/tags').then(mt => {
+      const el = document.getElementById('mediaTags' + m.id);
+      if (el) el.innerHTML = (mt||[]).map(t => `<span class="tag-badge">${t.name}</span>`).join('');
+    });
   }
 }
 

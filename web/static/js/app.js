@@ -39,6 +39,14 @@ document.getElementById('loginBtn').addEventListener('click', async () => {
     if (data.profiles && data.profiles.length) {
       document.getElementById('navProfile').textContent = data.profiles[0].name;
     }
+    if (data.role === 'admin') {
+      const links = document.getElementById('navLinks');
+      const a = document.createElement('a');
+      a.href = '/admin';
+      a.className = 'nav-link';
+      a.textContent = 'Admin';
+      links.appendChild(a);
+    }
     hideLogin();
     loadAll();
   } catch { document.getElementById('loginError').textContent = 'Network error'; }
@@ -46,23 +54,55 @@ document.getElementById('loginBtn').addEventListener('click', async () => {
 
 let allMedia = [];
 let selectedMediaId = null;
+let activeFilter = null;
 
 async function loadAll() {
-  const [mediaRes, progressRes, trendingRes] = await Promise.all([
+  const [mediaRes, progressRes, trendingRes, libRes] = await Promise.all([
     apiFetch('/media'),
     apiFetch('/progress'),
     apiFetch('/trending'),
+    apiFetch('/libraries'),
   ]);
   if (!mediaRes) return;
   const media = await mediaRes.json();
   allMedia = media;
   const progress = progressRes ? await progressRes.json() : [];
   const trending = trendingRes ? await trendingRes.json() : [];
+  const libraries = libRes ? await libRes.json() : [];
 
   renderHero(media);
   renderContinueWatching(progress);
+  renderFilters(libraries);
   renderGrid(media);
   renderTrending(trending);
+}
+
+function renderFilters(libraries) {
+  const bar = document.getElementById('filterBar');
+  bar.innerHTML = '';
+  const allBtn = document.createElement('button');
+  allBtn.className = 'filter-btn active';
+  allBtn.textContent = 'All';
+  allBtn.onclick = () => { setFilter(null); };
+  bar.appendChild(allBtn);
+
+  libraries.forEach(lib => {
+    const btn = document.createElement('button');
+    btn.className = 'filter-btn';
+    btn.textContent = lib.name;
+    btn.dataset.libraryId = lib.id;
+    btn.onclick = () => { setFilter(lib.id); };
+    bar.appendChild(btn);
+  });
+}
+
+function setFilter(libraryId) {
+  activeFilter = libraryId;
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.classList.toggle('active', String(btn.dataset.libraryId) === String(libraryId) || (!btn.dataset.libraryId && !libraryId));
+  });
+  const filtered = libraryId ? allMedia.filter(m => m.library_id == libraryId) : allMedia;
+  renderGrid(filtered);
 }
 
 function renderHero(media) {
@@ -75,8 +115,20 @@ function renderHero(media) {
     backdrop.style.backgroundImage = `url(https://image.tmdb.org/t/p/original${item.backdrop_path})`;
   }
   document.getElementById('heroTitle').textContent = item.title;
+  const meta = [];
+  if (item.media_type) meta.push(item.media_type.toUpperCase());
+  if (item.rating) meta.push(item.rating);
+  if (item.duration_seconds) {
+    const h = Math.floor(item.duration_seconds / 3600);
+    const m = Math.floor((item.duration_seconds % 3600) / 60);
+    meta.push(h + 'h ' + m + 'm');
+  }
+  document.getElementById('heroMeta').textContent = meta.join(' · ');
   document.getElementById('heroOverview').textContent = '';
   document.getElementById('heroPlay').onclick = () => { window.location.href = '/player.html?id=' + item.id; };
+  document.getElementById('heroInfo').onclick = () => {
+    window.location.href = '/player.html?id=' + item.id;
+  };
 }
 
 function renderContinueWatching(progress) {
@@ -95,6 +147,10 @@ function renderContinueWatching(progress) {
 function renderGrid(media) {
   const grid = document.getElementById('mediaGrid');
   grid.innerHTML = '';
+  if (!media.length) {
+    grid.innerHTML = '<div class="empty-state"><p>No media yet</p><p style="font-size:.8rem;color:var(--muted)">Add files to your media directories or check the scanner logs.</p></div>';
+    return;
+  }
   media.forEach(m => {
     const card = createCard(m.id, m.title, m.poster_path, 0, false);
     grid.appendChild(card);
@@ -121,6 +177,7 @@ function createCard(id, title, poster, progressPct, isTrending) {
   const div = document.createElement('div');
   div.className = 'card';
   div.dataset.id = id;
+  const item = allMedia.find(m => m.id === id);
 
   if (id) {
     div.addEventListener('click', () => { window.location.href = '/player.html?id=' + id; });
@@ -136,6 +193,13 @@ function createCard(id, title, poster, progressPct, isTrending) {
     img.style.background = '#333';
   }
   div.appendChild(img);
+
+  if (item && item.rating) {
+    const badge = document.createElement('span');
+    badge.className = 'card-rating';
+    badge.textContent = item.rating;
+    div.appendChild(badge);
+  }
 
   if (!isTrending) {
     const titleEl = document.createElement('div');
@@ -162,7 +226,6 @@ function createCard(id, title, poster, progressPct, isTrending) {
   let iframe = null;
 
   div.addEventListener('mouseenter', () => {
-    const item = allMedia.find(m => m.id === id);
     if (item && item.trailer_youtube_id) {
       hoverTimer = setTimeout(() => {
         iframe = document.createElement('iframe');

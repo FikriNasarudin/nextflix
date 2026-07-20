@@ -29,6 +29,16 @@ async function loadMedia(id) {
   VIDEO_ID = item.id;
   DURATION = item.duration_seconds;
   document.getElementById('playerTitle').textContent = item.title;
+  const meta = document.getElementById('playerMeta');
+  const parts = [];
+  if (item.media_type) parts.push(item.media_type.toUpperCase());
+  if (item.rating) parts.push(item.rating);
+  if (item.duration_seconds) {
+    const h = Math.floor(item.duration_seconds / 3600);
+    const m = Math.floor((item.duration_seconds % 3600) / 60);
+    parts.push(h + 'h ' + m + 'm');
+  }
+  meta.innerHTML = '<h2>' + item.title + '</h2><div class="meta-line">' + parts.join(' · ') + '</div><p>' + (item.overview || '') + '</p>';
   initPlayer(item);
 }
 
