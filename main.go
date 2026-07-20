@@ -24,7 +24,7 @@ func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
 	cfgPath := "./config.yaml"
-	if p := os.Getenv("NEXFLIX_CONFIG"); p != "" {
+	if p := os.Getenv("NEXTFLIX_CONFIG"); p != "" {
 		cfgPath = p
 	}
 

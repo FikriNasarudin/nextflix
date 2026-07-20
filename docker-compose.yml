@@ -11,7 +11,7 @@ services:
       - ./config.yaml:/config.yaml:ro
     environment:
       - TZ=UTC
-      - NEXFLIX_CONFIG=/config.yaml
+      - NEXTFLIX_CONFIG=/config.yaml
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
       interval: 30s
