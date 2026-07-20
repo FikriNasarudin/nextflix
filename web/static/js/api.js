@@ -6,6 +6,7 @@ window.NextflixAPI = (function() {
   function getToken() { return localStorage.getItem('token') }
   function setToken(t) { localStorage.setItem('token', t) }
   function clearToken() { localStorage.removeItem('token') }
+  function tokenParam() { var t = getToken(); return t ? '?token=' + encodeURIComponent(t) : '' }
 
   function showToast(msg, type) {
     var t = document.getElementById('toast')
@@ -40,17 +41,17 @@ window.NextflixAPI = (function() {
       type = type || 'poster';
       size = size || 'w342';
       if (!path) {
-        if (id) return API + '/image/local/' + type + '/' + id;
+        if (id) return API + '/image/local/' + type + '/' + id + tokenParam();
         return '';
       }
-      if (path.startsWith('/')) return API + '/image/tmdb/' + size + path;
+      if (path.startsWith('/')) return API + '/image/tmdb/' + size + path + tokenParam();
       return path;
     },
 
     backdropUrl: function(backdrop, poster, id) {
-      if (backdrop) return backdrop.startsWith('/') ? API + '/image/tmdb/original' + backdrop : backdrop;
-      if (poster) return poster.startsWith('/') ? API + '/image/tmdb/w1280' + poster : poster;
-      if (id) return API + '/image/local/backdrop/' + id;
+      if (backdrop) return backdrop.startsWith('/') ? API + '/image/tmdb/original' + backdrop + tokenParam() : backdrop;
+      if (poster) return poster.startsWith('/') ? API + '/image/tmdb/w1280' + poster + tokenParam() : poster;
+      if (id) return API + '/image/local/backdrop/' + id + tokenParam();
       return '';
     },
 

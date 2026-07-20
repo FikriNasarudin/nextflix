@@ -780,7 +780,7 @@ function createCard(id, title, poster, progressPct, isTrending, badge, itemOverr
   img.onerror = function() {
     if (!this.dataset.fallback) {
       this.dataset.fallback = '1';
-      this.src = NextflixAPI.API + '/image/local/poster/' + id;
+      this.src = NextflixAPI.API + '/image/local/poster/' + id + '?token=' + NextflixAPI.getToken();
     } else {
       this.style.display = 'none';
     }

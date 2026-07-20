@@ -66,7 +66,7 @@ function onSubtitleChange(value) {
   trackEl.setAttribute('data-subtitle', '');
   trackEl.kind = 'subtitles';
   trackEl.label = 'Subtitles';
-  trackEl.src = NextflixAPI.API + '/subtitle/' + value + '/file';
+  trackEl.src = NextflixAPI.API + '/subtitle/' + value + '/file?token=' + NextflixAPI.getToken();
   trackEl.addEventListener('load', function onLoad() {
     this.track.mode = 'showing';
   });
@@ -820,9 +820,9 @@ function setupSkipIntro(video, item) {
 
 async function loadThumbnails(mediaId) {
   try {
-    const head = await fetch(NextflixAPI.API + '/hls/' + mediaId + '/thumbs.vtt', { method: 'HEAD' });
+    const head = await fetch(NextflixAPI.API + '/hls/' + mediaId + '/thumbs.vtt?token=' + NextflixAPI.getToken(), { method: 'HEAD' });
     if (!head.ok) return;
-    const vtt = await fetch(NextflixAPI.API + '/hls/' + mediaId + '/thumbs.vtt').then(r => r.text());
+    const vtt = await fetch(NextflixAPI.API + '/hls/' + mediaId + '/thumbs.vtt?token=' + NextflixAPI.getToken()).then(r => r.text());
     thumbnailData = parseVTT(vtt);
     if (!thumbnailData.length) return;
 
@@ -863,7 +863,7 @@ function showThumbnail(e) {
   if (!frame) { hideThumbnail(); return; }
   const thumb = document.getElementById('pcThumbnail');
   const img = document.getElementById('pcThumbnailImg');
-  const spriteUrl = NextflixAPI.API + '/hls/' + VIDEO_ID + '/sprite.jpg';
+  const spriteUrl = NextflixAPI.API + '/hls/' + VIDEO_ID + '/sprite.jpg?token=' + NextflixAPI.getToken();
   img.style.objectFit = 'none';
   img.style.objectPosition = '-' + frame.x + 'px -' + frame.y + 'px';
   img.style.width = frame.w + 'px';
@@ -888,7 +888,7 @@ function triggerNextEpisode(item) {
   if (nextEp.hls_path && window.Hls) {
     preloadNextEp = nextEp;
     preloadHlsInstance = new Hls();
-    preloadHlsInstance.loadSource(NextflixAPI.API + '/hls/' + nextEp.id + '/index.m3u8');
+    preloadHlsInstance.loadSource(NextflixAPI.API + '/hls/' + nextEp.id + '/index.m3u8?token=' + NextflixAPI.getToken());
   }
 
   const overlay = document.getElementById('nextEpisodeOverlay');
