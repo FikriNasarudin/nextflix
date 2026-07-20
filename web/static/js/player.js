@@ -265,7 +265,7 @@ function initPlayer(item) {
 
     let retries = 0;
     let tryGeneration = 0;
-    const modes = item.hls_path ? ['hls', 'remux', 'direct'] : ['direct', 'remux'];
+    const modes = item.hls_path ? ['direct', 'remux', 'hls'] : ['direct', 'remux'];
 
     function trySource() {
       if (retries >= modes.length) {
