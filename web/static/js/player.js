@@ -11,7 +11,11 @@ let preloadNextEp = null;
 let isPiP = false;
 
 async function loadMedia(id) {
-  const all = window._nextflixMedia || (await NextflixAPI.fetch('/media'));
+  let all = window._nextflixMedia;
+  if (!all || !all.length) {
+    const resp = await NextflixAPI.fetch('/media');
+    all = (resp && resp.items) || [];
+  }
   const item = all.find(m => m.id == id);
   if (!item) { document.getElementById('playerTitle').textContent = 'Not found'; return; }
   currentItem = item;
@@ -333,6 +337,7 @@ function initPlayer(item) {
   try { setupDoubleTapSeek(video); } catch (e) { console.warn('doubleTap:', e); }
   try { setupAutoFullscreen(video); } catch (e) { console.warn('autoFS:', e); }
   try { setupSkipIntro(video, item); } catch (e) { console.warn('skipIntro:', e); }
+  try { setupAspectRatio(video); } catch (e) { console.warn('ratio:', e); }
   loadThumbnails(item.id);
 
   // Show next episode button in controls for TV
@@ -816,6 +821,31 @@ function setupSkipIntro(video, item) {
   });
 
   video.addEventListener('timeupdate', update);
+}
+
+function setupAspectRatio(video) {
+  const btn = document.getElementById('pcRatio');
+  if (!btn) return;
+
+  const modes = ['contain', 'fill', 'cover', 'scale-down'];
+  let currentIdx = 0;
+
+  function applyMode(idx) {
+    currentIdx = idx;
+    video.style.objectFit = modes[idx];
+    if (idx === 0) {
+      btn.classList.remove('pc-ratio-active');
+      btn.title = 'Aspect Ratio: Fit';
+    } else {
+      btn.classList.add('pc-ratio-active');
+      btn.title = 'Aspect Ratio: ' + modes[idx].charAt(0).toUpperCase() + modes[idx].slice(1);
+    }
+  }
+
+  btn.addEventListener('click', () => {
+    currentIdx = (currentIdx + 1) % modes.length;
+    applyMode(currentIdx);
+  });
 }
 
 async function loadThumbnails(mediaId) {

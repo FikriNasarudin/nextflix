@@ -67,8 +67,8 @@ async function loadAll() {
     NextflixAPI.fetch('/recommendations'),
   ]);
   if (!media) return;
-  allMedia = media;
-  window._nextflixMedia = media;
+  allMedia = media.items || [];
+  window._nextflixMedia = media.items || [];
   allLibraries = libraries || [];
   allCollections = collections || [];
 
