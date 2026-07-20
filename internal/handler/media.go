@@ -3,6 +3,8 @@ package handler
 import (
 	"database/sql"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"nextflix/internal/middleware"
 )
@@ -22,10 +24,13 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	var args []any
 
 	query = `
-		SELECT id, library_id, title, media_type, tmdb_id, rating,
-		       duration_seconds, trailer_youtube_id, backdrop_path, poster_path,
-		       show_name, season_number, episode_number, episode_title, year, overview,
-		       COALESCE(hls_480p_path, '') as hls_480p_path, created_at
+		SELECT mi.id, mi.library_id, mi.title, mi.media_type, mi.tmdb_id, mi.rating,
+		       mi.duration_seconds, mi.trailer_youtube_id, mi.backdrop_path, mi.poster_path,
+		       mi.show_name, mi.season_number, mi.episode_number, mi.episode_title, mi.year, mi.overview,
+		       COALESCE(mi.hls_480p_path, '') as hls_480p_path,
+		       mi.file_path,
+		       COALESCE((SELECT GROUP_CONCAT(t.name, '||') FROM tag_assignments ta JOIN tags t ON t.id = ta.tag_id WHERE ta.media_id = mi.id), '') as tags,
+		       mi.created_at
 		FROM media_items mi
 		WHERE 1=1
 	`
@@ -56,35 +61,44 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type mediaItem struct {
-		ID               int64   `json:"id"`
-		LibraryID        *int64  `json:"library_id"`
-		Title            string  `json:"title"`
-		MediaType        string  `json:"media_type"`
-		TmdbID           *int64  `json:"tmdb_id"`
-		Rating           string  `json:"rating"`
-		DurationSeconds  int     `json:"duration_seconds"`
-		TrailerYoutubeID string  `json:"trailer_youtube_id"`
-		BackdropPath     string  `json:"backdrop_path"`
-		PosterPath       string  `json:"poster_path"`
-		ShowName         string  `json:"show_name"`
-		SeasonNumber     int     `json:"season_number"`
-		EpisodeNumber    int     `json:"episode_number"`
-		EpisodeTitle     string  `json:"episode_title"`
-		Year             string  `json:"year"`
-		Overview         string  `json:"overview"`
-		HLS480pPath      string  `json:"hls_480p_path"`
-		CreatedAt        string  `json:"created_at"`
+		ID               int64    `json:"id"`
+		LibraryID        *int64   `json:"library_id"`
+		Title            string   `json:"title"`
+		MediaType        string   `json:"media_type"`
+		TmdbID           *int64   `json:"tmdb_id"`
+		Rating           string   `json:"rating"`
+		DurationSeconds  int      `json:"duration_seconds"`
+		TrailerYoutubeID string   `json:"trailer_youtube_id"`
+		BackdropPath     string   `json:"backdrop_path"`
+		PosterPath       string   `json:"poster_path"`
+		ShowName         string   `json:"show_name"`
+		SeasonNumber     int      `json:"season_number"`
+		EpisodeNumber    int      `json:"episode_number"`
+		EpisodeTitle     string   `json:"episode_title"`
+		Year             string   `json:"year"`
+		Overview         string   `json:"overview"`
+		HLS480pPath      string   `json:"hls_480p_path"`
+		Container        string   `json:"container"`
+		Tags             []string `json:"tags"`
+		CreatedAt        string   `json:"created_at"`
 	}
 
 	var items []mediaItem
 	for rows.Next() {
 		var i mediaItem
+		var filePath, tagsStr string
 		rows.Scan(
 			&i.ID, &i.LibraryID, &i.Title, &i.MediaType, &i.TmdbID, &i.Rating,
 			&i.DurationSeconds, &i.TrailerYoutubeID, &i.BackdropPath, &i.PosterPath,
 			&i.ShowName, &i.SeasonNumber, &i.EpisodeNumber, &i.EpisodeTitle, &i.Year, &i.Overview,
-			&i.HLS480pPath, &i.CreatedAt,
+			&i.HLS480pPath, &filePath, &tagsStr, &i.CreatedAt,
 		)
+		i.Container = strings.TrimPrefix(filepath.Ext(filePath), ".")
+		if tagsStr != "" {
+			i.Tags = strings.Split(tagsStr, "||")
+		} else {
+			i.Tags = []string{}
+		}
 		items = append(items, i)
 	}
 	if items == nil {

@@ -163,9 +163,37 @@ function updateBillboardDots() {
   document.querySelectorAll('.hero-dot').forEach((d, i) => d.classList.toggle('active', i === billboardIndex));
 }
 
-/* ===== Drag-to-Scroll Carousels ===== */
+/* ===== Carousel Arrows & Drag-to-Scroll ===== */
+function wrapRowWithArrows(row) {
+  if (row.parentElement.classList.contains('row-wrapper')) return;
+  const wrapper = document.createElement('div');
+  wrapper.className = 'row-wrapper';
+  row.parentNode.insertBefore(wrapper, row);
+  wrapper.appendChild(row);
+
+  const left = document.createElement('button');
+  left.className = 'row-arrow row-arrow-left';
+  left.innerHTML = '‹';
+  left.setAttribute('aria-label', 'Scroll left');
+  left.addEventListener('click', () => row.scrollBy({ left: -row.clientWidth, behavior: 'smooth' }));
+
+  const right = document.createElement('button');
+  right.className = 'row-arrow row-arrow-right';
+  right.innerHTML = '›';
+  right.setAttribute('aria-label', 'Scroll right');
+  right.addEventListener('click', () => row.scrollBy({ left: row.clientWidth, behavior: 'smooth' }));
+
+  wrapper.appendChild(left);
+  wrapper.appendChild(right);
+}
+
 function initCarousels() {
   document.querySelectorAll('.row').forEach(row => {
+    if (row.dataset.carouselInited) return;
+    row.dataset.carouselInited = '1';
+
+    wrapRowWithArrows(row);
+
     let isDown = false, startX = 0, scrollLeft = 0;
     row.addEventListener('mousedown', (e) => { isDown = true; startX = e.pageX - row.offsetLeft; scrollLeft = row.scrollLeft; });
     row.addEventListener('mouseleave', () => { isDown = false; });
@@ -363,11 +391,11 @@ function createCard(id, title, poster, progressPct, isTrending) {
   const div = document.createElement('div');
   div.className = 'card';
   div.dataset.id = id;
-  const item = allMedia.find(m => m.id === id);
+  const item = id ? (allMedia.find(m => m.id === id) || null) : null;
 
   if (id) {
     div.addEventListener('click', (e) => {
-      if (e.target.closest('.card-preview')) return;
+      if (e.target.closest('.card-hover-actions') || e.target.closest('.card-hover-action') || e.target.closest('.card-hover-action-play')) return;
       const found = allMedia.find(m => m.id === id);
       if (found) openDetail(found);
     });
@@ -445,25 +473,119 @@ function createCard(id, title, poster, progressPct, isTrending) {
     div.appendChild(bar);
   }
 
+  /* ===== Hover Expansion Content ===== */
+  const hoverContent = document.createElement('div');
+  hoverContent.className = 'card-hover-content';
+
+  const actions = document.createElement('div');
+  actions.className = 'card-hover-actions';
+  const playBtn = document.createElement('button');
+  playBtn.className = 'card-hover-action-play';
+  playBtn.innerHTML = '▶';
+  playBtn.title = 'Play';
+  playBtn.addEventListener('click', (e) => { e.stopPropagation(); if (item) playMedia(item); });
+  actions.appendChild(playBtn);
+  const addBtn = document.createElement('button');
+  addBtn.className = 'card-hover-action';
+  addBtn.textContent = '+';
+  addBtn.title = 'Add to List';
+  actions.appendChild(addBtn);
+  const likeBtn = document.createElement('button');
+  likeBtn.className = 'card-hover-action';
+  likeBtn.innerHTML = '👍';
+  likeBtn.title = 'Like';
+  actions.appendChild(likeBtn);
+  hoverContent.appendChild(actions);
+
+  if (item) {
+    const meta = document.createElement('div');
+    meta.className = 'card-hover-meta';
+    const match = document.createElement('span');
+    match.className = 'match';
+    const matchPct = item.rating ? Math.min(99, parseInt(item.rating) || 90) : 95;
+    match.textContent = matchPct + '% Match';
+    meta.appendChild(match);
+    if (item.container === 'mp4' || item.container === 'webm') {
+      const hd = document.createElement('span');
+      hd.className = 'hd';
+      hd.textContent = 'HD';
+      meta.appendChild(hd);
+    }
+    if (item.media_type === 'tv' && item.season_number > 0) {
+      const seasons = document.createElement('span');
+      seasons.textContent = (item.season_number > 1 ? item.season_number + ' Seasons' : '1 Season') + (item.episode_number ? ' · ' + item.episode_number + ' ep' : '');
+      meta.appendChild(seasons);
+    } else if (item.media_type === 'movie' && item.duration_seconds) {
+      const h = Math.floor(item.duration_seconds / 3600);
+      const m = Math.floor((item.duration_seconds % 3600) / 60);
+      const dur = document.createElement('span');
+      dur.textContent = h + 'h ' + m + 'm';
+      meta.appendChild(dur);
+    }
+    hoverContent.appendChild(meta);
+
+    if (item.tags && item.tags.length) {
+      const genres = document.createElement('div');
+      genres.className = 'card-hover-genres';
+      item.tags.forEach(t => {
+        const g = document.createElement('span');
+        g.className = 'card-hover-genre';
+        g.textContent = t;
+        genres.appendChild(g);
+      });
+      hoverContent.appendChild(genres);
+    }
+  }
+
+  div.appendChild(hoverContent);
+
+  /* ===== YouTube Trailer Preview on Expanded Card ===== */
   const preview = document.createElement('div');
   preview.className = 'card-preview';
+  preview.style.display = 'none';
   div.appendChild(preview);
 
-  let hoverTimer = null;
-  let iframe = null;
-  div.addEventListener('mouseenter', () => {
-    if (item && item.trailer_youtube_id) {
-      hoverTimer = setTimeout(() => {
-        iframe = document.createElement('iframe');
-        iframe.src = 'https://www.youtube.com/embed/' + item.trailer_youtube_id + '?autoplay=1&mute=1&controls=0&loop=1';
-        iframe.allow = 'autoplay';
-        preview.appendChild(iframe);
-      }, 1200);
+  let expandTimer = null;
+  let trailerTimer = null;
+  let trailerIframe = null;
+  let isExpanded = false;
+
+  function doExpand() {
+    if (isExpanded) return;
+    isExpanded = true;
+    const rect = div.getBoundingClientRect();
+    const vw = window.innerWidth;
+    if (rect.left < vw * 0.2) div.style.transformOrigin = 'center left';
+    else if (rect.right > vw * 0.8) div.style.transformOrigin = 'center right';
+    else div.style.transformOrigin = 'center center';
+    div.classList.add('card-expanded');
+
+    if (item && item.trailer_youtube_id && !trailerIframe) {
+      trailerTimer = setTimeout(() => {
+        trailerIframe = document.createElement('iframe');
+        trailerIframe.src = 'https://www.youtube.com/embed/' + item.trailer_youtube_id + '?autoplay=1&mute=1&controls=0&loop=1&playlist=' + item.trailer_youtube_id;
+        trailerIframe.allow = 'autoplay';
+        trailerIframe.style.cssText = 'width:100%;height:100%;border:none;pointer-events:none;';
+        preview.style.display = 'block';
+        preview.appendChild(trailerIframe);
+      }, 300);
     }
+  }
+
+  function doCollapse() {
+    isExpanded = false;
+    div.classList.remove('card-expanded');
+    div.style.transformOrigin = '';
+    if (trailerTimer) { clearTimeout(trailerTimer); trailerTimer = null; }
+    if (trailerIframe) { preview.removeChild(trailerIframe); trailerIframe = null; preview.style.display = 'none'; }
+  }
+
+  div.addEventListener('mouseenter', () => {
+    expandTimer = setTimeout(doExpand, 400);
   });
   div.addEventListener('mouseleave', () => {
-    if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
-    if (iframe) { preview.removeChild(iframe); iframe = null; }
+    if (expandTimer) { clearTimeout(expandTimer); expandTimer = null; }
+    setTimeout(doCollapse, 100);
   });
 
   return div;
