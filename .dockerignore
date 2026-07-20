@@ -1,0 +1,11 @@
+.git/
+.gitignore
+.gitattributes
+data/
+media/
+node_modules/
+*.md
+AGENTS.md
+.vscode/
+.idea/
+.DS_Store

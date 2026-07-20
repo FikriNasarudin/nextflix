@@ -1,0 +1,28 @@
+# Binary
+nextflix
+nextflix.exe
+*.test
+
+# Runtime data
+/data/
+/media/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+*.out
+go.work
+go.work.sum
+
+# Env
+.env
+.env.local
