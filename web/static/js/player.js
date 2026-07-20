@@ -328,7 +328,7 @@ function initPlayer(item) {
   try { setupKeyboardShortcuts(video); } catch (e) { console.warn('keyboard:', e); }
   try { setupSettingsDrawer(); } catch (e) { console.warn('settings:', e); }
   try { setupDoubleTapSeek(video); } catch (e) { console.warn('doubleTap:', e); }
-  try { setupMobileFullscreen(video); } catch (e) { console.warn('mobileFS:', e); }
+  try { setupAutoFullscreen(video); } catch (e) { console.warn('autoFS:', e); }
   loadThumbnails(item.id);
 
   // Show next episode button in controls for TV
@@ -739,20 +739,36 @@ function setupSettingsDrawer() {
   });
 }
 
-function setupMobileFullscreen(video) {
+function setupAutoFullscreen(video) {
+  var container = document.getElementById('playerContainer');
   var isMobile = window.innerWidth < 768 || ('ontouchstart' in window);
-  if (!isMobile) return;
+  var fsAttempted = false;
+
+  function enterFS() {
+    if (!container || document.fullscreenElement || fsAttempted) return;
+    fsAttempted = true;
+    container.requestFullscreen().then(function() {
+      if (isMobile && screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(function(){});
+      }
+    }).catch(function(){});
+  }
+
+  // Try on page load (may be blocked without gesture)
+  enterFS();
+
+  // Try again on play (user gesture — will succeed)
   video.addEventListener('play', function onPlay() {
-    var container = document.getElementById('playerContainer');
-    if (container && !document.fullscreenElement) {
-      container.requestFullscreen().catch(function(){});
+    if (!document.fullscreenElement) {
+      fsAttempted = false;
+      enterFS();
     }
-    try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(function(){}); } catch(e){}
   });
+
   document.addEventListener('fullscreenchange', function onFSChange() {
     if (!document.fullscreenElement) {
       video.pause();
-      try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch(e){}
+      if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
     }
   });
 }
