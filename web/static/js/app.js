@@ -634,6 +634,8 @@ function loadEpisodes(item) {
   if (seasons.length) renderSeason(seasons[0]);
 }
 
+let overlayHlsInstance = null;
+
 /* ===== Overlay Player ===== */
 function playMedia(item) {
   closeDetail();
@@ -644,7 +646,7 @@ function playMedia(item) {
   overlay.style.display = 'flex';
 
   let retries = 0;
-  const modes = ['direct', 'remux'];
+  const modes = ['direct', 'remux', 'hls'];
 
   function trySource() {
     if (retries >= modes.length) {
@@ -654,10 +656,39 @@ function playMedia(item) {
     }
     const mode = modes[retries];
     retries++;
+
+    if (mode === 'hls') {
+      playOverlayHLS(item.id, video);
+      return;
+    }
     video.src = mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id;
     video.play().catch((e) => {
       if (retries >= modes.length) showToast('Playback failed: ' + e.message, 'error');
     });
+  }
+
+  function playOverlayHLS(id, v) {
+    if (overlayHlsInstance) { overlayHlsInstance.destroy(); overlayHlsInstance = null; }
+    const url = API + '/hls/' + id + '/480p.m3u8';
+    if (v.canPlayType('application/vnd.apple.mpegurl')) {
+      v.src = url;
+      v.play();
+    } else if (window.Hls) {
+      overlayHlsInstance = new Hls();
+      overlayHlsInstance.loadSource(url);
+      overlayHlsInstance.attachMedia(v);
+      overlayHlsInstance.on(Hls.Events.MANIFEST_PARSED, () => v.play());
+      overlayHlsInstance.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+          console.warn('Overlay HLS fatal error, trying next source');
+          overlayHlsInstance.destroy();
+          overlayHlsInstance = null;
+          trySource();
+        }
+      });
+    } else {
+      trySource();
+    }
   }
 
   video.onerror = function(e) {

@@ -382,6 +382,13 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 	s.probeSem <- struct{}{}
 	defer func() { <-s.probeSem }()
 
+	absPath, err := filepath.Abs(path)
+	if err == nil {
+		path = absPath
+	} else {
+		log.Printf("Scanner: failed to resolve abs path %s: %v", path, err)
+	}
+
 	var existingID int64
 	var existingDur int
 	s.db.QueryRow(`SELECT id, duration_seconds FROM media_items WHERE file_path = ?`, path).Scan(&existingID, &existingDur)
