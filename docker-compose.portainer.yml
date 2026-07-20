@@ -1,6 +1,6 @@
 services:
   nextflix:
-    image: ghcr.io/FikriNasarudin/nextflix:latest
+    image: ghcr.io/fikrinasarudin/nextflix:latest
     container_name: nextflix
     restart: unless-stopped
     ports:
