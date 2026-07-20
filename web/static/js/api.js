@@ -36,7 +36,7 @@ window.NextflixAPI = (function() {
     showToast: showToast,
     isSlowConnection: isSlowConnection,
 
-    async fetch: function(path, opts) {
+    fetch: async function(path, opts) {
       opts = opts || {}
       var token = getToken()
       var headers = { 'Content-Type': 'application/json' }
