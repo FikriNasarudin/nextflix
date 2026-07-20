@@ -104,17 +104,31 @@ a { color:inherit; text-decoration:none; }
 .detail-close { position:absolute; top:16px; right:16px; width:36px; height:36px; border-radius:50%; background:rgba(0,0,0,.6); border:none; color:var(--text); font-size:1.2rem; cursor:pointer; z-index:5; display:flex; align-items:center; justify-content:center; transition:background .15s; }
 .detail-close:hover { background:rgba(0,0,0,.9); }
 .detail-body { padding:0 28px 28px; margin-top:-60px; position:relative; z-index:2; }
-.detail-title { font-size:1.8rem; font-weight:700; margin-bottom:6px; }
-.detail-meta { font-size:.9rem; color:#aaa; margin-bottom:12px; }
-.detail-overview { font-size:.95rem; line-height:1.6; color:#bbb; margin-bottom:20px; }
+.detail-body .detail-title { font-size:1.8rem; font-weight:700; margin-bottom:6px; }
+.detail-body .detail-meta { font-size:.9rem; color:#aaa; margin-bottom:12px; }
+.detail-body .detail-overview { font-size:.9rem; line-height:1.5; color:#bbb; margin-bottom:16px; }
 .detail-buttons { display:flex; gap:10px; margin-bottom:24px; }
 .detail-play { padding:10px 28px; border:none; border-radius:6px; background:linear-gradient(135deg,var(--primary),#a855f7); color:#fff; font-size:1rem; font-weight:600; cursor:pointer; transition:all .2s; display:flex; align-items:center; gap:8px; }
 .detail-play:hover { transform:scale(1.04); box-shadow:0 0 20px rgba(194,109,240,.3); }
+.detail-layout { display:flex; gap:24px; margin-bottom:20px; }
+.detail-poster-col { flex-shrink:0; width:200px; }
+.detail-poster { width:100%; border-radius:8px; aspect-ratio:2/3; object-fit:cover; background:var(--surface); box-shadow:0 4px 20px rgba(0,0,0,.5); }
+.detail-info-col { flex:1; min-width:0; }
+.detail-section-title { font-size:1.05rem; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+.detail-section-title::before { content:''; display:inline-block; width:3px; height:16px; background:linear-gradient(var(--primary),var(--accent)); border-radius:2px; }
+
+@media(max-width:600px){
+  .detail-layout { flex-direction:column; align-items:center; }
+  .detail-poster-col { width:140px; }
+}
+
 .detail-season-select { padding:6px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text); font-size:.85rem; margin-bottom:12px; cursor:pointer; }
 .episode-list { display:flex; flex-direction:column; gap:8px; max-height:300px; overflow-y:auto; }
 .episode-item { display:flex; gap:12px; padding:10px; border-radius:8px; cursor:pointer; transition:background .15s; }
 .episode-item:hover { background:var(--surface); }
-.episode-thumb { width:120px; aspect-ratio:16/9; border-radius:4px; background:var(--surface); object-fit:cover; flex-shrink:0; }
+.episode-thumb { width:120px; aspect-ratio:16/9; border-radius:4px; background:var(--surface); object-fit:cover; flex-shrink:0; display:block; }
+.episode-thumb.skeleton { background:linear-gradient(110deg,var(--surface) 30%,#2a2a4a 50%,var(--surface) 70%); background-size:200% 100%; animation:shimmer 1.8s ease infinite; }
+.episode-active { background:var(--surface) !important; border-left:3px solid var(--primary); }
 .episode-info { flex:1; }
 .episode-num { font-size:.75rem; color:var(--muted); margin-bottom:2px; }
 .episode-name { font-size:.9rem; font-weight:500; margin-bottom:4px; }

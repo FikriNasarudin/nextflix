@@ -71,6 +71,8 @@ document.getElementById('loginBtn').addEventListener('click', async () => {
 
 /* ===== State ===== */
 let allMedia = [];
+let allLibraries = [];
+let allCollections = [];
 let billboardTimer = null;
 let billboardIndex = 0;
 let billboardItems = [];
@@ -91,18 +93,17 @@ async function loadAll() {
   const trending = trendingRes ? await trendingRes.json() : [];
   const libraries = libRes ? await libRes.json() : [];
   const collections = collRes ? await collRes.json() : [];
+  allLibraries = libraries;
+  allCollections = collections;
 
   document.getElementById('skeletonHero').style.display = 'none';
   document.getElementById('skeletonRow').style.display = 'none';
 
-  initBillboard(media);
   renderContinueWatching(progress);
   renderCollections(collections);
-  renderFilters(libraries);
-  renderGrid(media);
   renderTrending(trending);
   initCarousels();
-  initNavFilters();
+  showPage('all');
 }
 
 /* ===== Billboard Hero ===== */
@@ -112,6 +113,7 @@ function initBillboard(media) {
   billboardItems = withBackdrop.slice(0, 8);
   renderBillboard(0);
   renderBillboardDots();
+  if (billboardTimer) { clearInterval(billboardTimer); billboardTimer = null; }
   if (billboardItems.length > 1) {
     billboardTimer = setInterval(() => {
       billboardIndex = (billboardIndex + 1) % billboardItems.length;
@@ -175,20 +177,68 @@ function initCarousels() {
   });
 }
 
-/* ===== Nav Filters ===== */
-function initNavFilters() {
-  document.querySelectorAll('.nav-link[data-filter], .bottom-nav-item[data-filter]').forEach(el => {
-    el.addEventListener('click', () => {
-      const filter = el.dataset.filter;
-      document.querySelectorAll('.nav-link[data-filter]').forEach(l => l.classList.toggle('active', l.dataset.filter === filter));
-      document.querySelectorAll('.bottom-nav-item[data-filter]').forEach(l => l.classList.toggle('active', l.dataset.filter === filter));
-      if (filter === 'all') {
-        renderGrid(allMedia);
-      } else {
-        renderGrid(allMedia.filter(m => m.media_type === filter));
-      }
-    });
-  });
+/* ===== Page Navigation ===== */
+function showPage(page) {
+  document.querySelectorAll('.nav-link[data-filter]').forEach(l => l.classList.toggle('active', l.dataset.filter === page));
+  document.querySelectorAll('.bottom-nav-item[data-filter]').forEach(l => l.classList.toggle('active', l.dataset.filter === page));
+
+  const hero = document.getElementById('hero');
+  const content = document.getElementById('pageContent');
+  content.innerHTML = '';
+
+  hero.style.display = 'flex';
+
+  if (page === 'all') {
+    renderHomePage();
+  } else if (page === 'movie') {
+    renderMoviesPage();
+  } else if (page === 'tv') {
+    renderTVPage();
+  }
+  initCarousels();
+}
+
+function renderHomePage() {
+  initBillboard(allMedia);
+
+  const content = document.getElementById('pageContent');
+  content.innerHTML = `
+    <section class="row-section" id="homeFilterSection">
+      <h2 class="row-title">All Media</h2>
+      <div class="filter-bar" id="filterBar"></div>
+      <div class="grid" id="mediaGrid"></div>
+    </section>
+  `;
+  renderFilters(allLibraries);
+  renderGrid(allMedia);
+}
+
+function renderMoviesPage() {
+  const movies = allMedia.filter(m => m.media_type === 'movie');
+  initBillboard(movies);
+
+  const content = document.getElementById('pageContent');
+  content.innerHTML = `
+    <section class="row-section">
+      <h2 class="row-title">Movies</h2>
+      <div class="grid" id="mediaGrid"></div>
+    </section>
+  `;
+  renderGrid(movies);
+}
+
+function renderTVPage() {
+  const tv = allMedia.filter(m => m.media_type === 'tv');
+  initBillboard(tv);
+
+  const content = document.getElementById('pageContent');
+  content.innerHTML = `
+    <section class="row-section">
+      <h2 class="row-title">TV Shows</h2>
+      <div class="grid" id="mediaGrid"></div>
+    </section>
+  `;
+  renderGrid(tv);
 }
 
 /* ===== Continue Watching ===== */
@@ -232,19 +282,27 @@ function renderCollections(collections) {
     div.addEventListener('click', () => showCollection(c));
     container.appendChild(div);
   });
-  initCarousels();
 }
 
 async function showCollection(coll) {
   const res = await apiFetch('/collections/' + coll.id + '/items');
   const items = res ? await res.json() : [];
   document.getElementById('collectionsRow').scrollIntoView({ behavior: 'smooth' });
+  showPage('all');
+  const content = document.getElementById('pageContent');
+  content.innerHTML = `
+    <section class="row-section">
+      <h2 class="row-title">${coll.name}</h2>
+      <div class="grid" id="mediaGrid"></div>
+    </section>
+  `;
   renderGrid(items);
 }
 
 /* ===== Filters ===== */
 function renderFilters(libraries) {
   const bar = document.getElementById('filterBar');
+  if (!bar) return;
   bar.innerHTML = '';
   const allBtn = document.createElement('button');
   allBtn.className = 'filter-btn active';
@@ -262,7 +320,9 @@ function renderFilters(libraries) {
 }
 
 function setFilter(libraryId) {
-  document.querySelectorAll('.filter-btn').forEach(btn => {
+  const btns = document.querySelectorAll('.filter-btn');
+  if (!btns.length) return;
+  btns.forEach(btn => {
     btn.classList.toggle('active', String(btn.dataset.libraryId) === String(libraryId) || (!btn.dataset.libraryId && !libraryId));
   });
   const filtered = libraryId ? allMedia.filter(m => m.library_id == libraryId) : allMedia;
@@ -272,6 +332,7 @@ function setFilter(libraryId) {
 /* ===== Grid ===== */
 function renderGrid(media) {
   const grid = document.getElementById('mediaGrid');
+  if (!grid) return;
   grid.innerHTML = '';
   if (!media.length) {
     grid.innerHTML = '<div class="empty-state"><p>No media yet</p><p style="font-size:.8rem;color:var(--muted)">Add files to your media directories or check the scanner logs.</p></div>';
@@ -298,7 +359,6 @@ function renderTrending(trending) {
     card.appendChild(rank);
     container.appendChild(card);
   });
-  initCarousels();
 }
 
 /* ===== Card ===== */
@@ -387,10 +447,13 @@ function createCard(id, title, poster, progressPct, isTrending) {
 }
 
 /* ===== Detail Modal ===== */
+let selectedEpisode = null;
+
 function openDetail(item) {
   const modal = document.getElementById('detailModal');
   const backdrop = document.getElementById('detailBackdrop');
   const body = document.getElementById('detailBody');
+  selectedEpisode = null;
 
   const imgUrl = item.backdrop_path
     ? 'https://image.tmdb.org/t/p/original' + item.backdrop_path
@@ -409,28 +472,70 @@ function openDetail(item) {
     meta.push(h + 'h ' + m + 'm');
   }
 
-  let extra = '';
-  if (item.media_type === 'tv' && item.show_name) {
-    extra = `<div id="detailEpisodes"><select class="detail-season-select" id="seasonSelect"></select><div class="episode-list" id="episodeList"></div></div>`;
-  }
+  const posterUrl = item.poster_path
+    ? (item.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + item.poster_path : item.poster_path)
+    : '';
+
+  const isTV = item.media_type === 'tv';
 
   body.innerHTML = `
-    <h2 class="detail-title">${item.title}</h2>
-    <p class="detail-meta">${meta.join(' · ')}</p>
-    <p class="detail-overview">${item.overview || 'No overview available.'}</p>
-    <div class="detail-buttons">
-      <button class="detail-play" id="detailPlayBtn">▶ Play</button>
+    <div class="detail-layout">
+      <div class="detail-poster-col">
+        <img class="detail-poster" id="detailPoster" src="${posterUrl}" alt="${item.title}" onerror="this.style.display='none'">
+      </div>
+      <div class="detail-info-col">
+        <h2 class="detail-title">${item.title}</h2>
+        <p class="detail-meta">${meta.join(' · ')}</p>
+        <p class="detail-overview" id="detailOverview">${item.overview || 'No overview available.'}</p>
+        <div class="detail-buttons">
+          <button class="detail-play" id="detailPlayBtn">▶ Play</button>
+        </div>
+        ${isTV ? `<div id="detailEpisodes"><select class="detail-season-select" id="seasonSelect"></select><div class="episode-list" id="episodeList"></div></div>` : ''}
+      </div>
     </div>
-    ${extra}
+    <div id="moreLikeThis"></div>
   `;
 
-  document.getElementById('detailPlayBtn').onclick = () => playMedia(item);
+  const playTarget = isTV ? findFirstEpisode(item) : item;
+  document.getElementById('detailPlayBtn').onclick = () => {
+    if (selectedEpisode) playMedia(selectedEpisode);
+    else if (playTarget) playMedia(playTarget);
+    else playMedia(item);
+  };
 
   modal.classList.add('open');
 
-  if (item.media_type === 'tv' && item.show_name) {
-    loadEpisodes(item, body);
+  if (isTV) {
+    loadEpisodes(item);
   }
+
+  renderMoreLikeThis(item);
+}
+
+function findFirstEpisode(item) {
+  const eps = allMedia.filter(m =>
+    m.show_name === item.show_name &&
+    m.episode_number > 0
+  ).sort((a, b) => a.season_number - b.season_number || a.episode_number - b.episode_number);
+  return eps[0] || null;
+}
+
+function renderMoreLikeThis(item) {
+  const container = document.getElementById('moreLikeThis');
+  const similar = allMedia
+    .filter(m => m.id !== item.id && m.media_type === item.media_type)
+    .sort(() => Math.random() - 0.5)
+    .slice(0, 6);
+  if (!similar.length) { container.innerHTML = ''; return; }
+  container.innerHTML = `
+    <h3 class="detail-section-title">More Like This</h3>
+    <div class="row" id="moreLikeThisRow"></div>
+  `;
+  const row = document.getElementById('moreLikeThisRow');
+  similar.forEach(m => {
+    const card = createCard(m.id, m.title, m.poster_path, 0, false);
+    row.appendChild(card);
+  });
 }
 
 document.getElementById('detailClose').onclick = () => closeDetail();
@@ -443,9 +548,10 @@ document.addEventListener('keydown', (e) => {
 
 function closeDetail() {
   document.getElementById('detailModal').classList.remove('open');
+  selectedEpisode = null;
 }
 
-async function loadEpisodes(item, body) {
+function loadEpisodes(item) {
   const seasonSelect = document.getElementById('seasonSelect');
   const episodeList = document.getElementById('episodeList');
   if (!seasonSelect || !episodeList) return;
@@ -454,33 +560,53 @@ async function loadEpisodes(item, body) {
     m.show_name === item.show_name &&
     m.season_number > 0 &&
     m.episode_number > 0
-  );
+  ).sort((a, b) => a.season_number - b.season_number || a.episode_number - b.episode_number);
 
   const seasons = [...new Set(all.map(m => m.season_number))].sort((a, b) => a - b);
   seasonSelect.innerHTML = seasons.map(s => `<option value="${s}">Season ${s}</option>`).join('');
 
   function renderSeason(seasonNum) {
-    const eps = all.filter(m => m.season_number === seasonNum).sort((a, b) => a.episode_number - b.episode_number);
-    episodeList.innerHTML = eps.map(ep => `
-      <div class="episode-item" data-id="${ep.id}">
-        <div class="episode-thumb skeleton"></div>
-        <div class="episode-info">
-          <div class="episode-num">Episode ${ep.episode_number}</div>
-          <div class="episode-name">${ep.episode_title || ep.title}</div>
-          <div class="episode-desc">${ep.overview || ''}</div>
+    const eps = all.filter(m => m.season_number === seasonNum);
+    episodeList.innerHTML = eps.map(ep => {
+      const epPoster = ep.poster_path
+        ? (ep.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w200' + ep.poster_path : ep.poster_path)
+        : '';
+      return `
+        <div class="episode-item" data-id="${ep.id}">
+          <img class="episode-thumb" src="${epPoster || ''}" alt="" onerror="this.classList.add('skeleton');this.src=''" loading="lazy">
+          <div class="episode-info">
+            <div class="episode-num">Episode ${ep.episode_number}</div>
+            <div class="episode-name">${ep.episode_title || ep.title}</div>
+            <div class="episode-desc">${ep.overview || ''}</div>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
     episodeList.querySelectorAll('.episode-item').forEach(el => {
       el.addEventListener('click', () => {
         const found = allMedia.find(m => m.id == el.dataset.id);
-        if (found) playMedia(found);
+        if (!found) return;
+        selectedEpisode = found;
+        episodeList.querySelectorAll('.episode-item').forEach(e => e.classList.remove('episode-active'));
+        el.classList.add('episode-active');
+
+        const poster = document.getElementById('detailPoster');
+        const epPoster = found.poster_path
+          ? (found.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + found.poster_path : found.poster_path)
+          : '';
+        if (epPoster) poster.src = epPoster;
+
+        const overview = document.getElementById('detailOverview');
+        if (found.overview) overview.textContent = found.overview;
+
+        const playBtn = document.getElementById('detailPlayBtn');
+        playBtn.onclick = () => playMedia(found);
       });
     });
   }
 
   seasonSelect.onchange = () => renderSeason(parseInt(seasonSelect.value));
-  renderSeason(seasons[0] || 1);
+  if (seasons.length) renderSeason(seasons[0]);
 }
 
 /* ===== Overlay Player ===== */
