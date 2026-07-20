@@ -17,6 +17,7 @@ import (
 	"nextflix/internal/handler"
 	"nextflix/internal/recommendation"
 	"nextflix/internal/scanner"
+	"nextflix/internal/tmdb"
 )
 
 func main() {
@@ -61,6 +62,9 @@ func main() {
 
 	rec := recommendation.NewEngine(db)
 	rec.Start()
+
+	tmdbSync := tmdb.NewSync(db)
+	tmdbSync.Start()
 
 	srv := &http.Server{
 		Addr:         addr(cfg.Server.Port),
