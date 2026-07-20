@@ -1,4 +1,3 @@
-const API = '/api/v1';
 let VIDEO_ID = null;
 let DURATION = 0;
 let hlsInstance = null;
@@ -10,45 +9,16 @@ let thumbnailData = null;
 let preloadHlsInstance = null;
 let preloadNextEp = null;
 
-function getToken() { return localStorage.getItem('token'); }
-
-function isSlowConnection() {
-  const conn = navigator.connection;
-  return conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g');
-}
-
-function showToast(msg, type) {
-  let t = document.getElementById('toast');
-  if (!t) {
-    t = document.createElement('div');
-    t.id = 'toast';
-    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 20px;border-radius:6px;font-size:.85rem;transition:opacity .3s;max-width:90vw;text-align:center';
-    document.body.appendChild(t);
-  }
-  t.textContent = msg;
-  t.style.background = type === 'error' ? '#e74c3c' : '#2ecc71';
-  t.style.color = '#fff';
-  t.style.opacity = '1';
-  clearTimeout(t._hide);
-  t._hide = setTimeout(function(){ t.style.opacity = '0'; }, 4000);
-}
-
-async function apiFetch(path, opts) {
-  const token = getToken();
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = 'Bearer ' + token;
-  const res = await fetch(API + path, { ...opts, headers });
-  if (res.status === 401) { window.location.href = '/'; return null; }
-  return res;
-}
-
-function getParams() {
+function getMediaId() {
+  const parts = window.location.pathname.split('/');
+  const last = parts[parts.length - 1];
+  if (last && last !== 'player.html' && !isNaN(last)) return last;
   const p = new URLSearchParams(window.location.search);
-  return { id: p.get('id') };
+  return p.get('id');
 }
 
 async function loadMedia(id) {
-  const all = window._nextflixMedia || (await (await apiFetch('/media')).json());
+  const all = window._nextflixMedia || (await NextflixAPI.fetch('/media'));
   const item = all.find(m => m.id == id);
   if (!item) { document.getElementById('playerTitle').textContent = 'Not found'; return; }
   currentItem = item;
@@ -76,12 +46,12 @@ async function loadMedia(id) {
 }
 
 async function loadTracks(id) {
-  const [subRes, audioRes] = await Promise.all([
-    apiFetch('/media/' + id + '/subtitles'),
-    apiFetch('/media/' + id + '/audio'),
+  const [subs, audios] = await Promise.all([
+    NextflixAPI.fetch('/media/' + id + '/subtitles'),
+    NextflixAPI.fetch('/media/' + id + '/audio'),
   ]);
-  window._extSubs = subRes ? await subRes.json() : [];
-  window._extAudios = audioRes ? await audioRes.json() : [];
+  window._extSubs = subs || [];
+  window._extAudios = audios || [];
 }
 
 function onSubtitleChange(value) {
@@ -97,7 +67,7 @@ function onSubtitleChange(value) {
       trackEl.label = 'Subtitles';
       video.appendChild(trackEl);
     }
-    trackEl.src = API + '/subtitle/' + value + '/file';
+    trackEl.src = NextflixAPI.API + '/subtitle/' + value + '/file';
     trackEl.track.mode = 'showing';
   }
 }
@@ -223,7 +193,7 @@ function initPlayer(item) {
 
   function playHLS() {
     if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-    const url = API + '/hls/' + item.id + '/index.m3u8?token=' + getToken();
+    const url = NextflixAPI.API + '/hls/' + item.id + '/index.m3u8?token=' + NextflixAPI.getToken();
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = url;
       populateTracks();
@@ -271,13 +241,13 @@ function initPlayer(item) {
     let retries = 0;
     let tryGeneration = 0;
     const modes = item.hls_path
-      ? (isSlowConnection() ? ['hls', 'remux'] : ['direct', 'remux', 'hls'])
-      : (isSlowConnection() ? ['remux'] : ['direct', 'remux']);
+      ? (NextflixAPI.isSlowConnection() ? ['hls', 'remux'] : ['direct', 'remux', 'hls'])
+      : (NextflixAPI.isSlowConnection() ? ['remux'] : ['direct', 'remux']);
 
     function trySource() {
       if (retries >= modes.length) {
         console.warn('playSource: all sources failed for', item.id);
-        showToast('No playable source found. The file format may not be supported.', 'error');
+        NextflixAPI.showToast('No playable source found. The file format may not be supported.', 'error');
         return;
       }
       const mode = modes[retries];
@@ -289,7 +259,7 @@ function initPlayer(item) {
       }
 
       const gen = ++tryGeneration;
-      const url = (mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id) + '?token=' + getToken();
+      const url = (mode === 'direct' ? NextflixAPI.API + '/stream/' + item.id : NextflixAPI.API + '/remux/' + item.id) + '?token=' + NextflixAPI.getToken();
 
       video.onerror = null;
       video.src = url;
@@ -300,7 +270,7 @@ function initPlayer(item) {
       };
       populateTracks();
       video.play().catch((e) => {
-        if (retries >= modes.length) showToast('Playback failed: ' + e.message, 'error');
+        if (retries >= modes.length) NextflixAPI.showToast('Playback failed: ' + e.message, 'error');
       });
     }
 
@@ -321,7 +291,7 @@ function initPlayer(item) {
   setInterval(async () => {
     if (!VIDEO_ID || !video.currentTime) return;
     const isFinished = video.currentTime / DURATION >= 0.9;
-    await apiFetch('/progress', {
+    await NextflixAPI.fetch('/progress', {
       method: 'PUT',
       body: JSON.stringify({
         media_id: VIDEO_ID,
@@ -505,7 +475,7 @@ function setupKeyboardShortcuts(video) {
         }
         video.playbackRate = next;
         document.getElementById('pcSpeed').value = next;
-        showToast(next + 'x', 'info');
+        NextflixAPI.showToast(next + 'x', 'info');
         break;
       }
       case 'Escape':
@@ -522,9 +492,9 @@ function setupKeyboardShortcuts(video) {
 
 async function loadThumbnails(mediaId) {
   try {
-    const head = await fetch(API + '/hls/' + mediaId + '/thumbs.vtt', { method: 'HEAD' });
+    const head = await fetch(NextflixAPI.API + '/hls/' + mediaId + '/thumbs.vtt', { method: 'HEAD' });
     if (!head.ok) return;
-    const vtt = await fetch(API + '/hls/' + mediaId + '/thumbs.vtt').then(r => r.text());
+    const vtt = await fetch(NextflixAPI.API + '/hls/' + mediaId + '/thumbs.vtt').then(r => r.text());
     thumbnailData = parseVTT(vtt);
     if (!thumbnailData.length) return;
 
@@ -565,7 +535,7 @@ function showThumbnail(e) {
   if (!frame) { hideThumbnail(); return; }
   const thumb = document.getElementById('pcThumbnail');
   const img = document.getElementById('pcThumbnailImg');
-  const spriteUrl = API + '/hls/' + VIDEO_ID + '/sprite.jpg';
+  const spriteUrl = NextflixAPI.API + '/hls/' + VIDEO_ID + '/sprite.jpg';
   img.style.objectFit = 'none';
   img.style.objectPosition = '-' + frame.x + 'px -' + frame.y + 'px';
   img.style.width = frame.w + 'px';
@@ -590,7 +560,7 @@ function triggerNextEpisode(item) {
   if (nextEp.hls_path && window.Hls) {
     preloadNextEp = nextEp;
     preloadHlsInstance = new Hls();
-    preloadHlsInstance.loadSource(API + '/hls/' + nextEp.id + '/index.m3u8');
+    preloadHlsInstance.loadSource(NextflixAPI.API + '/hls/' + nextEp.id + '/index.m3u8');
   }
 
   const overlay = document.getElementById('nextEpisodeOverlay');
@@ -660,8 +630,8 @@ function triggerMovieEnd(item) {
   overlay.style.display = 'flex';
 }
 
-const token = getToken();
+const token = NextflixAPI.getToken();
 if (!token) { window.location.href = '/'; } else {
-  const params = getParams();
-  if (params.id) loadMedia(params.id);
+  const id = getMediaId();
+  if (id) loadMedia(id);
 }

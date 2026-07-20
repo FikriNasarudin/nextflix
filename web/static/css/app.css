@@ -206,6 +206,55 @@ a { color:inherit; text-decoration:none; }
 .player-meta .meta-line { font-size:.85rem; color:var(--muted); margin-bottom:8px; }
 .player-meta p { font-size:.9rem; color:#ccc; line-height:1.5; }
 
+/* ===== Detail Info Button ===== */
+.detail-info-btn {
+  padding:10px 28px; border:1px solid var(--border); border-radius:6px;
+  background:rgba(255,255,255,.08); color:var(--text); font-size:1rem;
+  font-weight:600; cursor:pointer; transition:all .2s;
+}
+.detail-info-btn:hover { background:rgba(255,255,255,.15); }
+
+/* ===== Full Detail Page ===== */
+.detail-page { min-height:60vh; padding-bottom:40px; }
+.detail-page-backdrop {
+  position:relative; height:420px; background-size:cover; background-position:center;
+  border-radius:0 0 16px 16px; margin-bottom:24px;
+}
+.detail-page-backdrop::after {
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(0deg,var(--bg) 0,transparent 60%);
+}
+.detail-page-back {
+  position:absolute; top:20px; left:20px; z-index:5;
+  background:rgba(0,0,0,.6); border:none; color:var(--text);
+  font-size:.95rem; padding:8px 16px; border-radius:8px;
+  cursor:pointer; transition:background .15s; backdrop-filter:blur(4px);
+}
+.detail-page-back:hover { background:rgba(0,0,0,.9); }
+.detail-page-body { max-width:1000px; margin:0 auto; padding:0 24px; }
+.detail-page-layout { display:flex; gap:32px; margin-bottom:28px; }
+.detail-page-poster-col { flex-shrink:0; width:260px; }
+.detail-page-poster { width:100%; border-radius:12px; aspect-ratio:2/3; object-fit:cover; background:var(--surface); box-shadow:0 8px 32px rgba(0,0,0,.6); }
+.detail-page-info-col { flex:1; min-width:0; }
+.detail-page-title { font-size:2.2rem; font-weight:800; margin-bottom:8px; }
+.detail-page-meta { font-size:.95rem; color:var(--muted); margin-bottom:12px; }
+.detail-page-overview { font-size:1rem; line-height:1.6; color:#bbb; margin-bottom:20px; }
+.detail-page-play {
+  padding:12px 36px; border:none; border-radius:8px;
+  background:linear-gradient(135deg,var(--primary),#a855f7); color:#fff;
+  font-size:1.1rem; font-weight:600; cursor:pointer; transition:all .2s;
+  display:inline-flex; align-items:center; gap:8px;
+}
+.detail-page-play:hover { transform:scale(1.04); box-shadow:0 0 28px rgba(194,109,240,.35); }
+
+@media(max-width:768px){
+  .detail-page-backdrop { height:240px; }
+  .detail-page-layout { flex-direction:column; align-items:center; }
+  .detail-page-poster-col { width:180px; }
+  .detail-page-title { font-size:1.6rem; }
+  .detail-page-body { padding:0 16px; }
+}
+
 /* ===== Responsive ===== */
 @media(max-width:768px){
   .nav { padding:0 16px; }

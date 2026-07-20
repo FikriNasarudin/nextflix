@@ -1,34 +1,4 @@
-const API = '/api/v1';
-
-function getToken() { return localStorage.getItem('token'); }
-function setToken(t) { localStorage.setItem('token', t); }
-function clearToken() { localStorage.removeItem('token'); }
-
-function isSlowConnection() {
-  const conn = navigator.connection;
-  return conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g');
-}
-
-function showToast(msg, type) {
-  var t = document.getElementById('toast');
-  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 20px;border-radius:6px;font-size:.85rem;transition:opacity .3s;max-width:90vw;text-align:center'; document.body.appendChild(t); }
-  t.textContent = msg;
-  t.style.background = type === 'error' ? '#e74c3c' : '#2ecc71';
-  t.style.color = '#fff';
-  t.style.opacity = '1';
-  clearTimeout(t._hide);
-  t._hide = setTimeout(function(){ t.style.opacity = '0'; }, 4000);
-}
-
-async function apiFetch(path, opts) {
-  const token = getToken();
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = 'Bearer ' + token;
-  const res = await fetch(API + path, { ...opts, headers });
-  if (res.status === 401) { clearToken(); showLogin(); return null; }
-  return res;
-}
-
+/* ===== Login ===== */
 function showLogin() {
   document.getElementById('loginOverlay').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
@@ -41,7 +11,7 @@ function hideLogin() {
 
 document.getElementById('btnLogout').addEventListener('click', (e) => {
   e.preventDefault();
-  clearToken();
+  NextflixAPI.clearToken();
   window.location.href = '/';
 });
 
@@ -50,14 +20,14 @@ document.getElementById('loginBtn').addEventListener('click', async () => {
   const pass = document.getElementById('loginPass').value;
   document.getElementById('loginError').textContent = '';
   try {
-    const res = await fetch(API + '/auth/login', {
+    const res = await fetch(NextflixAPI.API + '/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: user, password: pass }),
     });
     if (!res.ok) { document.getElementById('loginError').textContent = 'Invalid credentials'; return; }
     const data = await res.json();
-    setToken(data.token);
+    NextflixAPI.setToken(data.token);
     if (data.profiles && data.profiles.length) {
       document.getElementById('navProfile').textContent = data.profiles[0].name;
     }
@@ -80,31 +50,70 @@ let billboardItems = [];
 
 /* ===== Load All Data ===== */
 async function loadAll() {
-  const [mediaRes, progressRes, trendingRes, libRes, collRes] = await Promise.all([
-    apiFetch('/media'),
-    apiFetch('/progress'),
-    apiFetch('/trending'),
-    apiFetch('/libraries'),
-    apiFetch('/collections'),
+  const [media, progress, trending, libraries, collections] = await Promise.all([
+    NextflixAPI.fetch('/media'),
+    NextflixAPI.fetch('/progress', { skipCache: true }),
+    NextflixAPI.fetch('/trending'),
+    NextflixAPI.fetch('/libraries'),
+    NextflixAPI.fetch('/collections'),
   ]);
-  if (!mediaRes) return;
-  const media = await mediaRes.json();
+  if (!media) return;
   allMedia = media;
   window._nextflixMedia = media;
-  const progress = progressRes ? await progressRes.json() : [];
-  const trending = trendingRes ? await trendingRes.json() : [];
-  const libraries = libRes ? await libRes.json() : [];
-  const collections = collRes ? await collRes.json() : [];
-  allLibraries = libraries;
-  allCollections = collections;
+  allLibraries = libraries || [];
+  allCollections = collections || [];
+
+  window._lastProgress = progress || [];
+  window._lastTrending = trending || [];
 
   document.getElementById('skeletonHero').style.display = 'none';
   document.getElementById('skeletonRow').style.display = 'none';
 
-  renderContinueWatching(progress);
-  renderCollections(collections);
-  renderTrending(trending);
+  renderContinueWatching(window._lastProgress);
+  renderCollections(allCollections);
+  renderTrending(window._lastTrending);
   initCarousels();
+
+  storeHomeSectionStates();
+
+  NextflixRouter.addRoute('/', function() { renderHomeView(); });
+  NextflixRouter.addRoute('/detail/:id', function(params) { renderDetailPage(params); });
+  NextflixRouter.init();
+  NextflixRouter.handlePath(window.location.pathname);
+}
+
+/* ===== Home Section State ===== */
+function storeHomeSectionStates() {
+  window._homeSectionStates = {
+    heroDisplay: document.getElementById('hero').style.display,
+    continueDisplay: document.getElementById('continueRow').style.display,
+    collectionsDisplay: document.getElementById('collectionsRow').style.display,
+    trendingDisplay: document.getElementById('trendingRow').style.display,
+  };
+}
+
+function hideHomeSections() {
+  storeHomeSectionStates();
+  document.getElementById('hero').style.display = 'none';
+  document.getElementById('skeletonHero').style.display = 'none';
+  document.getElementById('skeletonRow').style.display = 'none';
+  document.getElementById('continueRow').style.display = 'none';
+  document.getElementById('collectionsRow').style.display = 'none';
+  document.getElementById('trendingRow').style.display = 'none';
+}
+
+function restoreHomeSections() {
+  if (!window._homeSectionStates) return;
+  document.getElementById('hero').style.display = window._homeSectionStates.heroDisplay;
+  document.getElementById('continueRow').style.display = window._homeSectionStates.continueDisplay;
+  document.getElementById('collectionsRow').style.display = window._homeSectionStates.collectionsDisplay;
+  document.getElementById('trendingRow').style.display = window._homeSectionStates.trendingDisplay;
+}
+
+function renderHomeView() {
+  document.getElementById('skeletonHero').style.display = 'none';
+  document.getElementById('skeletonRow').style.display = 'none';
+  restoreHomeSections();
   showPage('all');
 }
 
@@ -149,7 +158,7 @@ function renderBillboard(index) {
   }
   document.getElementById('heroMeta').textContent = meta.join(' · ');
   document.getElementById('heroOverview').textContent = item.overview || '';
-  document.getElementById('heroPlay').onclick = (e) => { e.stopPropagation(); playMedia(item); };
+  document.getElementById('heroPlay').onclick = (e) => { e.stopPropagation(); window.location.href = '/watch/' + item.id; };
   document.getElementById('heroInfo').onclick = (e) => { e.stopPropagation(); openDetail(item); };
 }
 
@@ -315,8 +324,7 @@ function renderCollections(collections) {
 }
 
 async function showCollection(coll) {
-  const res = await apiFetch('/collections/' + coll.id + '/items');
-  const items = res ? await res.json() : [];
+  const items = await NextflixAPI.fetch('/collections/' + coll.id + '/items', { skipCache: true }) || [];
   document.getElementById('collectionsRow').scrollIntoView({ behavior: 'smooth' });
   showPage('all');
   const content = document.getElementById('pageContent');
@@ -418,7 +426,7 @@ function createCard(id, title, poster, progressPct, isTrending) {
   img.onerror = function() {
     if (!this.dataset.fallback) {
       this.dataset.fallback = '1';
-      this.src = API + '/image/local/poster/' + id;
+      this.src = NextflixAPI.API + '/image/local/poster/' + id;
     }
   };
   div.appendChild(img);
@@ -488,7 +496,7 @@ function createCard(id, title, poster, progressPct, isTrending) {
   playBtn.className = 'card-hover-action-play';
   playBtn.innerHTML = '▶';
   playBtn.title = 'Play';
-  playBtn.addEventListener('click', (e) => { e.stopPropagation(); if (item) playMedia(item); });
+  playBtn.addEventListener('click', (e) => { e.stopPropagation(); if (item) window.location.href = '/watch/' + item.id; });
   actions.appendChild(playBtn);
   const addBtn = document.createElement('button');
   addBtn.className = 'card-hover-action';
@@ -641,6 +649,7 @@ function openDetail(item) {
         <p class="detail-overview" id="detailOverview">${item.overview || 'No overview available.'}</p>
         <div class="detail-buttons">
           <button class="detail-play" id="detailPlayBtn">▶ Play</button>
+          <button class="detail-info-btn" id="detailFullBtn">Full Details</button>
         </div>
         ${isTV ? `<div id="detailEpisodes"><select class="detail-season-select" id="seasonSelect"></select><div class="episode-list" id="episodeList"></div></div>` : ''}
       </div>
@@ -650,9 +659,12 @@ function openDetail(item) {
 
   const playTarget = isTV ? findFirstEpisode(item) : item;
   document.getElementById('detailPlayBtn').onclick = () => {
-    if (selectedEpisode) playMedia(selectedEpisode);
-    else if (playTarget) playMedia(playTarget);
-    else playMedia(item);
+    const target = selectedEpisode || playTarget || item;
+    window.location.href = '/watch/' + target.id;
+  };
+  document.getElementById('detailFullBtn').onclick = () => {
+    closeDetail();
+    NextflixRouter.navigate('/detail/' + item.id);
   };
 
   modal.classList.add('open');
@@ -752,7 +764,7 @@ function loadEpisodes(item) {
         if (found.overview) overview.textContent = found.overview;
 
         const playBtn = document.getElementById('detailPlayBtn');
-        playBtn.onclick = () => playMedia(found);
+        playBtn.onclick = () => { window.location.href = '/watch/' + found.id; };
       });
     });
   }
@@ -761,135 +773,154 @@ function loadEpisodes(item) {
   if (seasons.length) renderSeason(seasons[0]);
 }
 
-let overlayHlsInstance = null;
+/* ===== Detail Page ===== */
+function renderDetailPage(params) {
+  const id = parseInt(params.id);
+  const item = allMedia.find(m => m.id === id);
+  if (!item) { NextflixAPI.showToast('Media not found', 'error'); NextflixRouter.navigate('/'); return; }
 
-/* ===== Overlay Player ===== */
-function playMedia(item) {
-  closeDetail();
-  const overlay = document.getElementById('playerOverlay');
-  const video = document.getElementById('overlayVideo');
-  const title = document.getElementById('playerOverlayTitle');
-  title.textContent = item.title;
-  overlay.style.display = 'flex';
+  hideHomeSections();
 
-  let retries = 0;
-  let tryGeneration = 0;
-  const modes = item.hls_path
-    ? (isSlowConnection() ? ['remux', 'hls'] : ['direct', 'remux', 'hls'])
-    : (isSlowConnection() ? ['remux'] : ['direct', 'remux']);
+  const content = document.getElementById('pageContent');
 
-  function trySource() {
-    if (retries >= modes.length) {
-      console.warn('playMedia: all sources failed for', item.id);
-      showToast('No playable source found. The file format may not be supported.', 'error');
-      return;
-    }
-    const mode = modes[retries];
-    retries++;
+  const imgUrl = item.backdrop_path
+    ? 'https://image.tmdb.org/t/p/original' + item.backdrop_path
+    : item.poster_path
+      ? (item.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w1280' + item.poster_path : '')
+      : '';
 
-    if (mode === 'hls') {
-      playOverlayHLS(item.id, video);
-      return;
-    }
+  const posterUrl = item.poster_path
+    ? (item.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + item.poster_path : item.poster_path)
+    : '';
 
-    const gen = ++tryGeneration;
-    const url = (mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id) + '?token=' + getToken();
+  const meta = [];
+  if (item.media_type) meta.push(item.media_type.toUpperCase());
+  if (item.rating) meta.push(item.rating);
+  if (item.year) meta.push(item.year);
+  if (item.duration_seconds) {
+    const h = Math.floor(item.duration_seconds / 3600);
+    const m = Math.floor((item.duration_seconds % 3600) / 60);
+    meta.push(h + 'h ' + m + 'm');
+  }
+  if (item.hls_path) meta.push('HD');
 
-    video.onerror = null;
-    video.src = url;
-    video.onerror = function(e) {
-      if (gen !== tryGeneration) return;
-      console.error('playMedia: source error', video.error ? 'code=' + video.error.code + ' msg=' + video.error.message : 'unknown');
-      trySource();
-    };
-    video.play().catch((e) => {
-      if (retries >= modes.length) showToast('Playback failed: ' + e.message, 'error');
+  const isTV = item.media_type === 'tv';
+
+  content.innerHTML = `
+    <div class="detail-page">
+      <div class="detail-page-backdrop" style="background-image: url('${imgUrl}')">
+        <button class="detail-page-back" id="detailPageBack">← Back</button>
+      </div>
+      <div class="detail-page-body">
+        <div class="detail-page-layout">
+          <div class="detail-page-poster-col">
+            <img class="detail-page-poster" src="${posterUrl}" alt="${item.title}" onerror="this.style.display='none'">
+          </div>
+          <div class="detail-page-info-col">
+            <h1 class="detail-page-title">${item.title}</h1>
+            <p class="detail-page-meta">${meta.join(' · ')}</p>
+            <p class="detail-page-overview">${item.overview || 'No overview available.'}</p>
+            <button class="detail-page-play" id="detailPagePlay">▶ Play</button>
+            ${isTV ? '<div id="detailPageEpisodes"></div>' : ''}
+            <div id="detailPageMoreLikeThis"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('detailPageBack').onclick = () => NextflixRouter.navigate('/');
+  document.getElementById('detailPagePlay').onclick = () => { window.location.href = '/watch/' + item.id; };
+
+  document.querySelectorAll('.nav-link[data-filter]').forEach(l => l.classList.remove('active'));
+  document.querySelectorAll('.bottom-nav-item[data-filter]').forEach(l => l.classList.remove('active'));
+
+  if (isTV) {
+    renderDetailPageEpisodes(item);
+  }
+
+  renderDetailPageMoreLikeThis(item);
+}
+
+function renderDetailPageEpisodes(item) {
+  const container = document.getElementById('detailPageEpisodes');
+  if (!container) return;
+
+  const all = allMedia.filter(m =>
+    m.show_name === item.show_name &&
+    m.season_number > 0 &&
+    m.episode_number > 0
+  ).sort((a, b) => a.season_number - b.season_number || a.episode_number - b.episode_number);
+
+  const seasons = [...new Set(all.map(m => m.season_number))].sort((a, b) => a - b);
+
+  let html = '<select class="detail-season-select" id="detailPageSeasonSelect">';
+  html += seasons.map(s => `<option value="${s}">Season ${s}</option>`).join('');
+  html += '</select><div class="episode-list" id="detailPageEpisodeList"></div>';
+  container.innerHTML = html;
+
+  const seasonSelect = document.getElementById('detailPageSeasonSelect');
+  const episodeList = document.getElementById('detailPageEpisodeList');
+
+  function renderSeason(seasonNum) {
+    const eps = all.filter(m => m.season_number === seasonNum);
+    episodeList.innerHTML = eps.map(ep => {
+      const epPoster = ep.poster_path
+        ? (ep.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w200' + ep.poster_path : ep.poster_path)
+        : '';
+      return `
+        <div class="episode-item" data-id="${ep.id}">
+          <img class="episode-thumb" src="${epPoster || ''}" alt="" onerror="this.classList.add('skeleton');this.src=''" loading="lazy">
+          <div class="episode-info">
+            <div class="episode-num">S${ep.season_number} · E${ep.episode_number}</div>
+            <div class="episode-name">${ep.episode_title || ep.title}</div>
+            <div class="episode-desc">${ep.overview || ''}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+    episodeList.querySelectorAll('.episode-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const found = allMedia.find(m => m.id == el.dataset.id);
+        if (found) window.location.href = '/watch/' + found.id;
+      });
     });
   }
 
-  function playOverlayHLS(id, v) {
-    if (overlayHlsInstance) { overlayHlsInstance.destroy(); overlayHlsInstance = null; }
-    const url = API + '/hls/' + id + '/index.m3u8?token=' + getToken();
-    if (v.canPlayType('application/vnd.apple.mpegurl')) {
-      v.src = url;
-      v.play();
-    } else if (window.Hls) {
-      overlayHlsInstance = new Hls();
-      overlayHlsInstance.loadSource(url);
-      overlayHlsInstance.attachMedia(v);
-      overlayHlsInstance.on(Hls.Events.MANIFEST_PARSED, () => v.play());
-      overlayHlsInstance.on(Hls.Events.ERROR, (event, data) => {
-        if (data.fatal) {
-          console.warn('Overlay HLS fatal error, trying next source');
-          overlayHlsInstance.destroy();
-          overlayHlsInstance = null;
-          trySource();
-        }
-      });
-    } else {
-      trySource();
-    }
-  }
-
-  const subSelect = document.getElementById('overlaySubtitleSelect');
-  let overlayTrackEl = null;
-
-  function onOverlaySubtitleChange(value) {
-    if (overlayTrackEl) { overlayTrackEl.remove(); overlayTrackEl = null; }
-    if (!value) return;
-    overlayTrackEl = document.createElement('track');
-    overlayTrackEl.kind = 'subtitles';
-    overlayTrackEl.label = 'Subtitles';
-    overlayTrackEl.src = API + '/subtitle/' + value + '/file';
-    overlayTrackEl.track.mode = 'showing';
-    video.appendChild(overlayTrackEl);
-  }
-
-  subSelect.onchange = () => onOverlaySubtitleChange(subSelect.value);
-
-  apiFetch('/media/' + item.id + '/subtitles').then(r => {
-    if (!r) return;
-    r.json().then(subs => {
-      if (!subs || !subs.length) return;
-      subSelect.innerHTML = '<option value="">Subtitles</option>';
-      subs.forEach(s => {
-        const opt = document.createElement('option');
-        opt.value = s.id;
-        opt.textContent = (s.language || 'und').toUpperCase();
-        subSelect.appendChild(opt);
-      });
-      subSelect.style.display = 'inline-block';
-    }).catch(() => {});
-  }).catch(() => {});
-
-  trySource();
+  seasonSelect.onchange = () => renderSeason(parseInt(seasonSelect.value));
+  if (seasons.length) renderSeason(seasons[0]);
 }
 
-document.getElementById('playerOverlayClose').onclick = closePlayer;
-
-function closePlayer() {
-  const overlay = document.getElementById('playerOverlay');
-  const video = document.getElementById('overlayVideo');
-  video.pause();
-  video.src = '';
-  overlay.style.display = 'none';
+function renderDetailPageMoreLikeThis(item) {
+  const container = document.getElementById('detailPageMoreLikeThis');
+  if (!container) return;
+  const similar = allMedia
+    .filter(m => m.id !== item.id && m.media_type === item.media_type)
+    .sort(() => Math.random() - 0.5)
+    .slice(0, 6);
+  if (!similar.length) { container.innerHTML = ''; return; }
+  container.innerHTML = `
+    <h3 class="detail-section-title">More Like This</h3>
+    <div class="row" id="detailPageMoreLikeThisRow"></div>
+  `;
+  const row = document.getElementById('detailPageMoreLikeThisRow');
+  similar.forEach(m => {
+    const card = createCard(m.id, m.title, m.poster_path, 0, false);
+    row.appendChild(card);
+  });
 }
-
-document.getElementById('playerOverlay').addEventListener('click', (e) => {
-  if (e.target === e.currentTarget) closePlayer();
-});
 
 document.getElementById('btnAdmin').addEventListener('click', () => { window.location.href = '/admin'; });
 
 /* ===== Init ===== */
-const token = getToken();
+const token = NextflixAPI.getToken();
 if (token) {
   document.getElementById('btnLogout').style.display = 'inline-block';
   document.querySelector('.nav-link[data-filter="all"]').classList.add('active');
   document.querySelector('.bottom-nav-item[data-filter="all"]').classList.add('active');
   hideLogin();
   loadAll();
-  apiFetch('/auth/me').then(r => { if (r) r.json().then(d => { if (d.role === 'admin') document.getElementById('btnAdmin').style.display = 'inline-block'; })}).catch(() => {});
+  NextflixAPI.fetch('/auth/me').then(d => { if (d && d.role === 'admin') document.getElementById('btnAdmin').style.display = 'inline-block'; }).catch(() => {});
 } else {
   showLogin();
 }
