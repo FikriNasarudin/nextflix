@@ -15,15 +15,17 @@ type Router struct {
 	mux      *http.ServeMux
 	db       *sql.DB
 	authMgr  *auth.Manager
+	hlsDir   string
 	authMid  func(http.Handler) http.Handler
 	adminMid func(http.Handler) http.Handler
 }
 
-func NewRouter(db *sql.DB, authMgr *auth.Manager) *Router {
+func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string) *Router {
 	r := &Router{
 		mux:      http.NewServeMux(),
 		db:       db,
 		authMgr:  authMgr,
+		hlsDir:   hlsDir,
 		authMid:  middleware.Auth(authMgr),
 		adminMid: middleware.RequireAdmin,
 	}
@@ -37,10 +39,37 @@ func NewRouter(db *sql.DB, authMgr *auth.Manager) *Router {
 		w.Write([]byte(`{"status":"ok"}`))
 	})))
 
+	r.mountMedia()
+	r.mountStreaming()
+	r.mountProgress()
+	r.mountTrending()
 	r.mountAdmin()
 
 	log.Println("Routes registered")
 	return r
+}
+
+func (r *Router) mountMedia() {
+	mh := NewMediaHandler(r.db)
+	r.mux.Handle("GET /api/v1/media", r.authMid(http.HandlerFunc(mh.List)))
+}
+
+func (r *Router) mountStreaming() {
+	sh := NewStreamHandler(r.db, r.hlsDir)
+	r.mux.Handle("GET /api/v1/stream/{id}", r.authMid(http.HandlerFunc(sh.Serve)))
+	r.mux.Handle("GET /api/v1/remux/{id}", r.authMid(http.HandlerFunc(sh.Remux)))
+	r.mux.Handle("GET /api/v1/hls/{id}/{rest...}", r.authMid(http.HandlerFunc(sh.HLSFile)))
+}
+
+func (r *Router) mountProgress() {
+	ph := NewProgressHandler(r.db)
+	r.mux.Handle("GET /api/v1/progress", r.authMid(http.HandlerFunc(ph.List)))
+	r.mux.Handle("PUT /api/v1/progress", r.authMid(http.HandlerFunc(ph.Update)))
+}
+
+func (r *Router) mountTrending() {
+	th := NewTrendingHandler(r.db)
+	r.mux.Handle("GET /api/v1/trending", r.authMid(http.HandlerFunc(th.List)))
 }
 
 func (r *Router) mountAdmin() {
