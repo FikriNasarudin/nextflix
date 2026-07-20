@@ -319,6 +319,13 @@ func seedSettings(db *sql.DB, cfg *config.Config) error {
 			return fmt.Errorf("seeding setting %s: %w", k, err)
 		}
 	}
+
+	db.Exec(`UPDATE media_items SET poster_path = '' WHERE poster_path LIKE '/%/%'`)
+	db.Exec(`UPDATE media_items SET backdrop_path = '' WHERE backdrop_path LIKE '/%/%'`)
+
+	db.Exec(`DELETE FROM media_items WHERE file_path != '' AND id NOT IN (SELECT MIN(id) FROM media_items WHERE file_path != '' GROUP BY file_path)`)
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_media_filepath_unique ON media_items(file_path)`)
+
 	return nil
 }
 
