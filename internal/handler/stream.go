@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type StreamHandler struct {
@@ -52,6 +53,16 @@ func (h *StreamHandler) Serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ext := strings.ToLower(filepath.Ext(filePath))
+	mime := map[string]string{
+		".mp4": "video/mp4", ".mkv": "video/x-matroska",
+		".avi": "video/x-msvideo", ".mov": "video/quicktime",
+		".webm": "video/webm", ".ts": "video/mp2t",
+		".m4v": "video/mp4", ".ogv": "video/ogg",
+	}
+	if ct, ok := mime[ext]; ok {
+		w.Header().Set("Content-Type", ct)
+	}
 	w.Header().Set("Accept-Ranges", "bytes")
 	http.ServeContent(w, r, filepath.Base(filePath), stat.ModTime(), file)
 }
@@ -71,6 +82,11 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		http.Error(w, "ffmpeg not available", http.StatusInternalServerError)
 		return
 	}
 

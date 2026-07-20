@@ -4,6 +4,17 @@ function getToken() { return localStorage.getItem('token'); }
 function setToken(t) { localStorage.setItem('token', t); }
 function clearToken() { localStorage.removeItem('token'); }
 
+function showToast(msg, type) {
+  var t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 20px;border-radius:6px;font-size:.85rem;transition:opacity .3s;max-width:90vw;text-align:center'; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.style.background = type === 'error' ? '#e74c3c' : '#2ecc71';
+  t.style.color = '#fff';
+  t.style.opacity = '1';
+  clearTimeout(t._hide);
+  t._hide = setTimeout(function(){ t.style.opacity = '0'; }, 4000);
+}
+
 async function apiFetch(path, opts) {
   const token = getToken();
   const headers = { 'Content-Type': 'application/json' };
@@ -491,11 +502,14 @@ function playMedia(item) {
   function trySource() {
     if (retries >= sources.length) {
       console.warn('playMedia: all sources failed for', item.id);
+      showToast('No playable source found. The file format may not be supported.', 'error');
       return;
     }
     video.src = sources[retries]();
     retries++;
-    video.play().catch(() => {});
+    video.play().catch((e) => {
+      if (retries >= sources.length) showToast('Playback failed: ' + e.message, 'error');
+    });
   }
 
   video.onerror = trySource;
