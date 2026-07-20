@@ -768,7 +768,7 @@ function playMedia(item) {
   overlay.style.display = 'flex';
 
   let retries = 0;
-  const modes = ['direct', 'remux', 'hls'];
+  const modes = item.hls_path ? ['direct', 'remux', 'hls'] : ['direct', 'remux'];
 
   function trySource() {
     if (retries >= modes.length) {

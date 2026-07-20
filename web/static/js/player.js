@@ -251,9 +251,10 @@ function initPlayer(item) {
       });
       hlsInstance.on(Hls.Events.ERROR, (event, data) => {
         if (data.fatal) {
-          console.warn('HLS fatal error, falling back to remux');
-          video.src = API + '/remux/' + item.id + '?token=' + getToken();
-          video.play();
+          console.warn('HLS fatal error, trying next source');
+          hlsInstance.destroy();
+          hlsInstance = null;
+          trySource();
         }
       });
     }
