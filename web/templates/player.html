@@ -1,8 +1,8 @@
 {{define "content"}}
 <div class="player-wrapper">
   <a href="/" class="player-back">← Back to Browse</a>
-  <div class="player-video-container">
-    <video id="video" class="player-video" controls autoplay></video>
+  <div class="player-video-container" id="playerContainer">
+    <video id="video" class="player-video" autoplay playsinline></video>
 
     <div id="nextEpisodeOverlay" class="next-episode-overlay" style="display:none">
       <div class="next-episode-info">
@@ -19,13 +19,43 @@
       <div class="row" id="movieEndRow"></div>
       <button id="movieEndBack" class="quality-btn" style="margin-top:8px">Back to Browse</button>
     </div>
+
+    <div class="player-control-bar" id="controlBar">
+      <div class="pc-progress-wrap">
+        <div class="pc-thumbnail" id="pcThumbnail" style="display:none">
+          <img id="pcThumbnailImg" alt="">
+          <span class="pc-thumb-time" id="pcThumbTime">0:00</span>
+        </div>
+        <input type="range" class="pc-progress" id="pcProgress" min="0" max="100" value="0">
+      </div>
+      <div class="pc-row">
+        <div class="pc-left">
+          <button id="pcPlay" class="pc-btn pc-play">▶</button>
+          <span class="pc-time" id="pcTime">0:00 / 0:00</span>
+        </div>
+        <div class="pc-right">
+          <button id="pcVolBtn" class="pc-btn pc-vol">🔊</button>
+          <input type="range" class="pc-volume-slider" id="pcVolume" min="0" max="1" step="0.05" value="1">
+          <select id="pcSpeed" class="pc-speed">
+            <option value="0.5">0.5x</option>
+            <option value="1" selected>1x</option>
+            <option value="1.25">1.25x</option>
+            <option value="1.5">1.5x</option>
+            <option value="2">2x</option>
+          </select>
+          <button id="pcFs" class="pc-btn pc-fullscreen">⛶</button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <div class="player-controls">
-    <button id="episodesBtn" class="quality-btn" style="display:none">Episodes</button>
-    <span class="player-title" id="playerTitle"></span>
-    <select id="subtitleSelect" class="track-select" style="display:none"><option value="">Subtitles</option></select>
-    <select id="audioSelect" class="track-select" style="display:none"><option value="">Audio</option></select>
+  <div class="player-top-controls" id="playerTopControls">
+    <div class="player-controls">
+      <button id="episodesBtn" class="quality-btn" style="display:none">Episodes</button>
+      <span class="player-title" id="playerTitle"></span>
+      <select id="subtitleSelect" class="track-select" style="display:none"><option value="">Subtitles</option></select>
+      <select id="audioSelect" class="track-select" style="display:none"><option value="">Audio</option></select>
+    </div>
   </div>
   <div class="player-meta" id="playerMeta"></div>
 </div>

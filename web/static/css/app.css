@@ -226,6 +226,81 @@ a { color:inherit; text-decoration:none; }
   .episode-drawer { width:100%; }
 }
 
+/* ===== Custom Player Controls ===== */
+.player-video-container { position:relative; }
+.player-control-bar {
+  position:absolute; bottom:0; left:0; right:0;
+  background:linear-gradient(transparent 0,rgba(0,0,0,.8) 40%);
+  padding:28px 20px 14px; z-index:10;
+  transition:opacity .3s ease;
+}
+.player-control-bar.pc-hidden { opacity:0; pointer-events:none; }
+.player-top-controls { transition:opacity .3s ease; }
+.player-top-controls.pc-hidden { opacity:0; pointer-events:none; }
+
+.pc-progress-wrap { position:relative; height:24px; margin-bottom:2px; }
+.pc-thumbnail {
+  position:absolute; bottom:28px; z-index:11;
+  border-radius:4px; overflow:hidden;
+  box-shadow:0 2px 12px rgba(0,0,0,.7); pointer-events:none;
+  background:#000;
+}
+.pc-thumbnail img { display:block; }
+.pc-thumb-time {
+  display:block; text-align:center;
+  background:rgba(0,0,0,.8); color:#fff;
+  font-size:11px; padding:2px 0;
+}
+.pc-progress {
+  -webkit-appearance:none; width:100%; height:4px;
+  background:rgba(255,255,255,.25); border-radius:2px;
+  outline:none; cursor:pointer; position:relative; z-index:2;
+  transition:height .15s;
+}
+.pc-progress::-webkit-slider-thumb {
+  -webkit-appearance:none; width:14px; height:14px;
+  border-radius:50%; background:#e50914; border:none;
+  opacity:0; transition:opacity .15s;
+}
+.pc-progress:hover::-webkit-slider-thumb { opacity:1; }
+.pc-progress:hover { height:6px; }
+.pc-progress::-moz-range-thumb {
+  width:14px; height:14px; border-radius:50%;
+  background:#e50914; border:none; cursor:pointer;
+}
+.pc-progress::-moz-range-track { height:4px; background:rgba(255,255,255,.25); border-radius:2px; }
+
+.pc-row { display:flex; align-items:center; justify-content:space-between; }
+.pc-left, .pc-right { display:flex; align-items:center; gap:14px; }
+.pc-btn {
+  background:none; border:none; color:#fff;
+  font-size:22px; cursor:pointer; padding:4px;
+  opacity:.85; transition:opacity .15s,transform .1s;
+  line-height:1;
+}
+.pc-btn:hover { opacity:1; transform:scale(1.15); }
+.pc-time { font-size:13px; color:#fff; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.pc-volume-slider { width:80px; -webkit-appearance:none; appearance:none; height:4px; background:rgba(255,255,255,.25); border-radius:2px; outline:none; cursor:pointer; }
+.pc-volume-slider::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:#fff; border:none; }
+.pc-volume-slider::-moz-range-thumb { width:12px; height:12px; border-radius:50%; background:#fff; border:none; }
+.pc-speed {
+  background:rgba(255,255,255,.1); color:#fff;
+  border:1px solid rgba(255,255,255,.25); border-radius:4px;
+  padding:2px 6px; font-size:12px; cursor:pointer;
+  font-family:inherit;
+}
+
+/* ===== WebVTT Subtitles ===== */
+video::cue {
+  font-family:system-ui,-apple-system,sans-serif;
+  font-size:1.1rem; color:#fff;
+  background:rgba(0,0,0,.65);
+  text-shadow:0 1px 3px rgba(0,0,0,.8);
+  line-height:1.4;
+}
+video::cue(b) { font-weight:700; }
+video::cue(i) { font-style:italic; }
+
 /* ===== Scan Progress ===== */
 .scan-progress { margin:16px 0 8px; }
 .scan-progress-bar { height:6px; background:#333; border-radius:3px; overflow:hidden; }

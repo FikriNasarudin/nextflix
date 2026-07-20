@@ -1,12 +1,15 @@
 package encoder
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	"nextflix/internal/config"
@@ -134,5 +137,60 @@ func (e *Encoder) encode(mediaID int64, inputPath string) error {
 	e.db.Exec(`UPDATE media_items SET hls_480p_path = ? WHERE id = ?`, playlistPath, mediaID)
 	log.Printf("Encoder: complete media=%d → %s (480p + 1080p ABR)", mediaID, playlistPath)
 
+	go e.generateThumbnails(mediaID, inputPath, outputDir)
+
 	return nil
+}
+
+func (e *Encoder) generateThumbnails(mediaID int64, inputPath, outputDir string) {
+	spritePath := filepath.Join(outputDir, "sprite.jpg")
+	vttPath := filepath.Join(outputDir, "thumbs.vtt")
+
+	durArgs := []string{
+		"-v", "quiet",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		inputPath,
+	}
+	durBytes, err := exec.Command("ffprobe", durArgs...).Output()
+	if err != nil {
+		log.Printf("Encoder: thumb ffprobe failed media=%d: %v", mediaID, err)
+		return
+	}
+	duration, err := strconv.ParseFloat(strings.TrimSpace(string(durBytes)), 64)
+	if err != nil || duration <= 0 {
+		return
+	}
+
+	spriteArgs := []string{
+		"-n", "19", "ffmpeg",
+		"-i", inputPath,
+		"-vf", "fps=1/10,scale=160x90,tile=5x5",
+		"-q:v", "3", "-vsync", "0", "-threads", "1",
+		"-y", spritePath,
+	}
+	cmd := exec.Command("nice", spriteArgs...)
+	if err := cmd.Run(); err != nil {
+		log.Printf("Encoder: thumb sprite failed media=%d: %v", mediaID, err)
+		return
+	}
+
+	numFrames := int(duration) / 10
+	var vttBuf bytes.Buffer
+	vttBuf.WriteString("WEBVTT\n\n")
+	for i := 0; i < numFrames; i++ {
+		start := i * 10
+		end := start + 10
+		col := i % 5
+		row := i / 5
+		startTime := fmt.Sprintf("%02d:%02d:%02d.000", start/3600, (start%3600)/60, start%60)
+		endTime := fmt.Sprintf("%02d:%02d:%02d.000", end/3600, (end%3600)/60, end%60)
+		vttBuf.WriteString(fmt.Sprintf("%s --> %s\n", startTime, endTime))
+		vttBuf.WriteString(fmt.Sprintf("sprite.jpg#xywh=%d,%d,160,90\n\n", col*160, row*90))
+	}
+	if err := os.WriteFile(vttPath, vttBuf.Bytes(), 0644); err != nil {
+		log.Printf("Encoder: thumb VTT write failed media=%d: %v", mediaID, err)
+		return
+	}
+	log.Printf("Encoder: thumbnails done media=%d (%d frames)", mediaID, numFrames)
 }
