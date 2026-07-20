@@ -55,3 +55,18 @@ func RequireAdmin(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+func UserIDFromContext(ctx context.Context) int64 {
+	v, _ := ctx.Value(ContextUserID).(int64)
+	return v
+}
+
+func ProfileIDFromContext(ctx context.Context) int64 {
+	v, _ := ctx.Value(ContextProfileID).(int64)
+	return v
+}
+
+func RoleFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(ContextRole).(string)
+	return v
+}
