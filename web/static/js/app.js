@@ -4,6 +4,11 @@ function getToken() { return localStorage.getItem('token'); }
 function setToken(t) { localStorage.setItem('token', t); }
 function clearToken() { localStorage.removeItem('token'); }
 
+function isSlowConnection() {
+  const conn = navigator.connection;
+  return conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g');
+}
+
 function showToast(msg, type) {
   var t = document.getElementById('toast');
   if (!t) { t = document.createElement('div'); t.id = 'toast'; t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 20px;border-radius:6px;font-size:.85rem;transition:opacity .3s;max-width:90vw;text-align:center'; document.body.appendChild(t); }
@@ -769,7 +774,9 @@ function playMedia(item) {
 
   let retries = 0;
   let tryGeneration = 0;
-  const modes = item.hls_path ? ['direct', 'remux', 'hls'] : ['direct', 'remux'];
+  const modes = item.hls_path
+    ? (isSlowConnection() ? ['remux', 'hls'] : ['direct', 'remux', 'hls'])
+    : (isSlowConnection() ? ['remux'] : ['direct', 'remux']);
 
   function trySource() {
     if (retries >= modes.length) {
@@ -823,6 +830,37 @@ function playMedia(item) {
       trySource();
     }
   }
+
+  const subSelect = document.getElementById('overlaySubtitleSelect');
+  let overlayTrackEl = null;
+
+  function onOverlaySubtitleChange(value) {
+    if (overlayTrackEl) { overlayTrackEl.remove(); overlayTrackEl = null; }
+    if (!value) return;
+    overlayTrackEl = document.createElement('track');
+    overlayTrackEl.kind = 'subtitles';
+    overlayTrackEl.label = 'Subtitles';
+    overlayTrackEl.src = API + '/subtitle/' + value + '/file';
+    overlayTrackEl.track.mode = 'showing';
+    video.appendChild(overlayTrackEl);
+  }
+
+  subSelect.onchange = () => onOverlaySubtitleChange(subSelect.value);
+
+  apiFetch('/media/' + item.id + '/subtitles').then(r => {
+    if (!r) return;
+    r.json().then(subs => {
+      if (!subs || !subs.length) return;
+      subSelect.innerHTML = '<option value="">Subtitles</option>';
+      subs.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = (s.language || 'und').toUpperCase();
+        subSelect.appendChild(opt);
+      });
+      subSelect.style.display = 'inline-block';
+    }).catch(() => {});
+  }).catch(() => {});
 
   trySource();
 }

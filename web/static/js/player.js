@@ -12,6 +12,11 @@ let preloadNextEp = null;
 
 function getToken() { return localStorage.getItem('token'); }
 
+function isSlowConnection() {
+  const conn = navigator.connection;
+  return conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g');
+}
+
 function showToast(msg, type) {
   let t = document.getElementById('toast');
   if (!t) {
@@ -265,7 +270,9 @@ function initPlayer(item) {
 
     let retries = 0;
     let tryGeneration = 0;
-    const modes = item.hls_path ? ['direct', 'remux', 'hls'] : ['direct', 'remux'];
+    const modes = item.hls_path
+      ? (isSlowConnection() ? ['hls', 'remux'] : ['direct', 'remux', 'hls'])
+      : (isSlowConnection() ? ['remux'] : ['direct', 'remux']);
 
     function trySource() {
       if (retries >= modes.length) {
@@ -360,6 +367,10 @@ function setupCustomControls(video) {
 
   function updateTime() {
     if (isSeeking) return;
+    if (video.ended) {
+      timeEl.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return;
+    }
     const cur = video.currentTime || 0;
     const dur = video.duration || 0;
     progress.value = dur ? (cur / dur) * 100 : 0;

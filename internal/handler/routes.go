@@ -6,8 +6,10 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"nextflix/internal/admin"
@@ -189,9 +191,32 @@ func (r *Router) mountAssets() {
 		var path, codec string
 		err = r.db.QueryRow(`SELECT file_path, codec FROM media_subtitles WHERE id = ?`, id).Scan(&path, &codec)
 		if err != nil { writeError(w, "not found", http.StatusNotFound); return }
-		mime := map[string]string{"srt": "text/plain", "vtt": "text/vtt", "ass": "text/plain", "ssa": "text/plain", "sub": "text/plain", "idx": "text/plain"}
-		if ct, ok := mime[codec]; ok { w.Header().Set("Content-Type", ct) }
-		http.ServeFile(w, req, path)
+
+		if codec == "vtt" {
+			w.Header().Set("Content-Type", "text/vtt")
+			http.ServeFile(w, req, path)
+			return
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			writeError(w, "file not found", http.StatusNotFound)
+			return
+		}
+
+		if codec == "srt" {
+			content := strings.ReplaceAll(string(data), ",", ".")
+			if !strings.HasPrefix(content, "WEBVTT") {
+				content = "WEBVTT\n\n" + content
+			}
+			w.Header().Set("Content-Type", "text/vtt")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			w.Write([]byte(content))
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write(data)
 	})))
 }
 
