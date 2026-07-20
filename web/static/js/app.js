@@ -783,7 +783,7 @@ function playMedia(item) {
       playOverlayHLS(item.id, video);
       return;
     }
-    video.src = mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id;
+    video.src = (mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id) + '?token=' + getToken();
     video.play().catch((e) => {
       if (retries >= modes.length) showToast('Playback failed: ' + e.message, 'error');
     });
@@ -791,7 +791,7 @@ function playMedia(item) {
 
   function playOverlayHLS(id, v) {
     if (overlayHlsInstance) { overlayHlsInstance.destroy(); overlayHlsInstance = null; }
-    const url = API + '/hls/' + id + '/index.m3u8';
+    const url = API + '/hls/' + id + '/index.m3u8?token=' + getToken();
     if (v.canPlayType('application/vnd.apple.mpegurl')) {
       v.src = url;
       v.play();

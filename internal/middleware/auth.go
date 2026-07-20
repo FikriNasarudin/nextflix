@@ -19,19 +19,24 @@ const (
 func Auth(manager *auth.Manager) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
-				return
-			}
-
+		var token string
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" {
 			parts := strings.SplitN(authHeader, " ", 2)
 			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 				http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
 				return
 			}
+			token = parts[1]
+		} else {
+			token = r.URL.Query().Get("token")
+			if token == "" {
+				http.Error(w, "Missing Authorization header or token", http.StatusUnauthorized)
+				return
+			}
+		}
 
-			claims, err := manager.ValidateToken(parts[1])
+		claims, err := manager.ValidateToken(token)
 			if err != nil {
 				http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
 				return

@@ -218,7 +218,7 @@ function initPlayer(item) {
 
   function playHLS() {
     if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-    const url = API + '/hls/' + item.id + '/index.m3u8';
+    const url = API + '/hls/' + item.id + '/index.m3u8?token=' + getToken();
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = url;
       populateTracks();
@@ -252,7 +252,7 @@ function initPlayer(item) {
       hlsInstance.on(Hls.Events.ERROR, (event, data) => {
         if (data.fatal) {
           console.warn('HLS fatal error, falling back to remux');
-          video.src = API + '/remux/' + item.id;
+          video.src = API + '/remux/' + item.id + '?token=' + getToken();
           video.play();
         }
       });
@@ -278,7 +278,7 @@ function initPlayer(item) {
         playHLS();
         return;
       }
-      video.src = mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id;
+      video.src = (mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id) + '?token=' + getToken();
       populateTracks();
       video.play().catch((e) => {
         if (retries >= modes.length) showToast('Playback failed: ' + e.message, 'error');

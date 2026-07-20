@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type StreamHandler struct {
@@ -178,14 +179,48 @@ func (h *StreamHandler) HLSFile(w http.ResponseWriter, r *http.Request) {
 
 	filePath := filepath.Join(h.hlsOutputDir, fmt.Sprintf("%d", id), r.PathValue("rest"))
 
-	if ext := filepath.Ext(filePath); ext == ".ts" {
+	ext := filepath.Ext(filePath)
+	if ext == ".ts" {
 		w.Header().Set("Content-Type", "video/MP2T")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
-	} else if ext == ".m3u8" {
-		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		http.ServeFile(w, r, filePath)
+		return
 	}
 
-	http.ServeFile(w, r, filePath)
+	if ext != ".m3u8" {
+		http.ServeFile(w, r, filePath)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.ServeFile(w, r, filePath)
+		return
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.Contains(line, "://") {
+			continue
+		}
+		if strings.Contains(line, "?") {
+			lines[i] = line + "&token=" + token
+		} else {
+			lines[i] = line + "?token=" + token
+		}
+	}
+
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeContent(w, r, "index.m3u8", time.Time{}, strings.NewReader(strings.Join(lines, "\n")))
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
