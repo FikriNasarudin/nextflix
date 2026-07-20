@@ -58,9 +58,6 @@ let billboardItems = [];
 
 /* ===== Load All Data ===== */
 async function loadAll() {
-  // Skip on player page — sections don't exist here
-  if (!document.getElementById('app')) return;
-
   const [media, progress, trending, libraries, collections, recommendations] = await Promise.all([
     NextflixAPI.fetch('/media'),
     NextflixAPI.fetch('/progress', { skipCache: true }),
@@ -93,18 +90,10 @@ async function loadAll() {
 
   storeHomeSectionStates();
 
-  // Delegated navigation handler — full page nav on player page
-  function isPlayerPage() { return !!document.getElementById('playerContainer'); }
   document.addEventListener('click', function(e) {
-    var btn = e.target.closest('[data-filter], [data-nav]');
+    var btn = e.target.closest('[data-filter]');
     if (!btn) return;
-    if (isPlayerPage()) {
-      var href = btn.getAttribute('href') || btn.dataset.nav;
-      if (href) { e.preventDefault(); window.location.href = href; return; }
-      window.location.href = '/';
-      return;
-    }
-    if (btn.hasAttribute('data-filter')) showPage(btn.dataset.filter);
+    showPage(btn.dataset.filter);
   });
 
   NextflixRouter.addRoute('/', function() { renderHomeView(); });
@@ -113,6 +102,14 @@ async function loadAll() {
   NextflixRouter.addRoute('/browse/tv', function() { renderAllTVPage(); });
   NextflixRouter.addRoute('/browse/:section', function(params) { renderBrowsePage(params); });
   NextflixRouter.addRoute('/collections', function() { renderCollectionsPage(); });
+  NextflixRouter.addRoute('/watch/:id', function(params) {
+    showPlayerOverlay(parseInt(params.id));
+  });
+  NextflixRouter.onBeforeNavigate(function(path) {
+    if (NextflixPlayer && NextflixPlayer.isActive && !path.startsWith('/watch/')) {
+      hidePlayerOverlay();
+    }
+  });
   NextflixRouter.init();
   NextflixRouter.handlePath(window.location.pathname);
 }
@@ -205,7 +202,7 @@ function renderBillboard(index) {
   }
   document.getElementById('heroMeta').textContent = meta.join(' · ');
   document.getElementById('heroOverview').textContent = item.overview || '';
-  document.getElementById('heroPlay').onclick = (e) => { e.stopPropagation(); window.location.href = '/watch/' + item.id; };
+  document.getElementById('heroPlay').onclick = (e) => { e.stopPropagation(); NextflixRouter.navigate('/watch/' + item.id); };
   document.getElementById('heroInfo').onclick = (e) => { e.stopPropagation(); openDetail(item); };
 }
 
@@ -862,7 +859,7 @@ function createCard(id, title, poster, progressPct, isTrending, badge, itemOverr
   playBtn.className = 'card-hover-action-play';
   playBtn.innerHTML = '▶';
   playBtn.title = 'Play';
-  playBtn.addEventListener('click', (e) => { e.stopPropagation(); if (item) window.location.href = '/watch/' + item.id; });
+  playBtn.addEventListener('click', (e) => { e.stopPropagation(); if (item) NextflixRouter.navigate('/watch/' + item.id); });
   actions.appendChild(playBtn);
   const addBtn = document.createElement('button');
   addBtn.className = 'card-hover-action';
@@ -1024,7 +1021,7 @@ function openDetail(item) {
   const playTarget = isTV ? findFirstEpisode(item) : item;
   document.getElementById('detailPlayBtn').onclick = () => {
     const target = selectedEpisode || playTarget || item;
-    window.location.href = '/watch/' + target.id;
+    NextflixRouter.navigate('/watch/' + target.id);
   };
   document.getElementById('detailFullBtn').onclick = () => {
     closeDetail();
@@ -1071,13 +1068,51 @@ document.getElementById('detailModal').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) closeDetail();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeDetail();
+  if (e.key === 'Escape') {
+    var po = document.getElementById('playerOverlay');
+    if (po && po.classList.contains('active')) {
+      hidePlayerOverlay();
+      return;
+    }
+    closeDetail();
+  }
 });
 
 function closeDetail() {
   document.getElementById('detailModal').classList.remove('open');
   selectedEpisode = null;
 }
+
+/* ===== Player Overlay ===== */
+function showPlayerOverlay(id) {
+  window._savedScrollY = window.scrollY;
+
+  var overlay = document.getElementById('playerOverlay');
+  overlay.classList.add('active');
+
+  if (NextflixPlayer.currentId === id) {
+    NextflixPlayer.resume();
+  } else {
+    if (NextflixPlayer.currentId) NextflixPlayer.destroy();
+    NextflixPlayer.load(id);
+  }
+}
+
+function hidePlayerOverlay() {
+  NextflixPlayer.dismiss();
+  document.getElementById('playerOverlay').classList.remove('active');
+  requestAnimationFrame(function() {
+    window.scrollTo(0, window._savedScrollY || 0);
+  });
+}
+
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('#playerBackBtn');
+  if (btn) {
+    e.preventDefault();
+    hidePlayerOverlay();
+  }
+});
 
 function loadEpisodes(item) {
   const seasonSelect = document.getElementById('seasonSelect');
@@ -1124,7 +1159,7 @@ function loadEpisodes(item) {
         if (found.overview) overview.textContent = found.overview;
 
         const playBtn = document.getElementById('detailPlayBtn');
-        playBtn.onclick = () => { window.location.href = '/watch/' + found.id; };
+        playBtn.onclick = () => { NextflixRouter.navigate('/watch/' + found.id); };
       });
     });
   }
@@ -1189,7 +1224,7 @@ function renderDetailPage(params) {
 
   document.getElementById('detailPageBack').onclick = () => NextflixRouter.navigate('/');
   document.getElementById('detailPageBrowse').onclick = () => NextflixRouter.navigate(browsePath);
-  document.getElementById('detailPagePlay').onclick = () => { window.location.href = '/watch/' + item.id; };
+  document.getElementById('detailPagePlay').onclick = () => { NextflixRouter.navigate('/watch/' + item.id); };
 
   document.querySelectorAll('.nav-link[data-filter]').forEach(l => l.classList.remove('active'));
   document.querySelectorAll('.bottom-nav-item[data-filter]').forEach(l => l.classList.remove('active'));
@@ -1239,7 +1274,7 @@ function renderDetailPageEpisodes(item) {
     episodeList.querySelectorAll('.episode-item').forEach(el => {
       el.addEventListener('click', () => {
         const found = allMedia.find(m => m.id == el.dataset.id);
-        if (found) window.location.href = '/watch/' + found.id;
+        if (found) NextflixRouter.navigate('/watch/' + found.id);
       });
     });
   }

@@ -10,14 +10,6 @@ let preloadHlsInstance = null;
 let preloadNextEp = null;
 let isPiP = false;
 
-function getMediaId() {
-  const parts = window.location.pathname.split('/');
-  const last = parts[parts.length - 1];
-  if (last && last !== 'player.html' && !isNaN(last)) return last;
-  const p = new URLSearchParams(window.location.search);
-  return p.get('id');
-}
-
 async function loadMedia(id) {
   const all = window._nextflixMedia || (await NextflixAPI.fetch('/media'));
   const item = all.find(m => m.id == id);
@@ -959,11 +951,37 @@ function triggerMovieEnd(item) {
     row.appendChild(card);
   });
 
-  backBtn.onclick = () => { window.location.href = '/'; };
+  backBtn.onclick = () => { if (window.hidePlayerOverlay) window.hidePlayerOverlay(); else window.location.href = '/'; };
   overlay.style.display = 'flex';
 }
 
-if (!NextflixAPI.getToken()) { window.location.href = '/'; } else {
-  var id = getMediaId();
-  if (id) loadMedia(id);
-}
+window.NextflixPlayer = {
+  currentId: null,
+  isActive: false,
+
+  load: function(id) {
+    this.currentId = id;
+    this.isActive = true;
+    loadMedia(id);
+  },
+
+  dismiss: function() {
+    this.isActive = false;
+    var video = document.getElementById('video');
+    if (video) video.pause();
+  },
+
+  resume: function() {
+    this.isActive = true;
+    var video = document.getElementById('video');
+    if (video) video.play();
+  },
+
+  destroy: function() {
+    this.isActive = false;
+    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+    var video = document.getElementById('video');
+    if (video) { video.pause(); video.removeAttribute('src'); }
+    this.currentId = null;
+  }
+};

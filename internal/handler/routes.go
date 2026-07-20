@@ -255,22 +255,7 @@ func (r *Router) mountFrontend() {
 		tmpl.Execute(w, nil)
 	})
 
-	r.mux.HandleFunc("/player.html", func(w http.ResponseWriter, req *http.Request) {
-		tmpl := template.Must(template.ParseFS(web.FS, "templates/layout.html", "templates/player.html"))
-		tmpl.Execute(w, map[string]string{"Title": "Player — Nextflix"})
-	})
-
-	r.mux.HandleFunc("GET /watch/{id}", func(w http.ResponseWriter, req *http.Request) {
-		tmpl := template.Must(template.ParseFS(web.FS, "templates/layout.html", "templates/player.html"))
-		tmpl.Execute(w, map[string]string{"Title": "Player — Nextflix"})
-	})
-
 	r.mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-		path := req.URL.Path
-		if path != "/" && path != "/index.html" && !strings.HasPrefix(path, "/detail/") {
-			http.NotFound(w, req)
-			return
-		}
 		tmpl := template.Must(template.ParseFS(web.FS, "templates/layout.html", "templates/index.html"))
 		tmpl.Execute(w, map[string]string{"Title": "Nextflix"})
 	})
