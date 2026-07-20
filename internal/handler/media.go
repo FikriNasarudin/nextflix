@@ -29,7 +29,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		       mi.show_name, mi.season_number, mi.episode_number, mi.episode_title, mi.year, mi.overview,
 		       COALESCE(mi.hls_480p_path, '') as hls_480p_path,
 		       mi.file_path,
-		       COALESCE((SELECT GROUP_CONCAT(t.name, '||') FROM tag_assignments ta JOIN tags t ON t.id = ta.tag_id WHERE ta.media_id = mi.id), '') as tags,
+		COALESCE((SELECT GROUP_CONCAT(t.name, '||') FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE mt.media_id = mi.id), '') as tags,
 		       mi.created_at
 		FROM media_items mi
 		WHERE 1=1
