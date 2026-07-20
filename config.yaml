@@ -23,7 +23,7 @@ encoder:
   hls_output_dir: "./data/hls"
 
 integrations:
-  tmdb_api_key: "YOUR_TMDB_API_KEY_HERE"
+  tmdb_api_key: "change-me-to-a-real-key"
 
 ui:
   theme: "dark"

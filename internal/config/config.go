@@ -2,11 +2,17 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+var placeholderAPIKeys = map[string]bool{
+	"YOUR_TMDB_API_KEY_HERE": true,
+	"change-me-to-a-real-key": true,
+}
 
 type Config struct {
 	Server       ServerConfig       `yaml:"server"`
@@ -124,8 +130,9 @@ func (c *Config) validate() error {
 	if c.Encoder.HLSOutputDir == "" {
 		errs = append(errs, "encoder.hls_output_dir is required")
 	}
-	if c.Integrations.TmdbAPIKey == "" || c.Integrations.TmdbAPIKey == "YOUR_TMDB_API_KEY_HERE" {
-		errs = append(errs, "integrations.tmdb_api_key is required and must be a valid key")
+	if c.Integrations.TmdbAPIKey == "" || placeholderAPIKeys[c.Integrations.TmdbAPIKey] {
+		log.Println("[WARN] integrations.tmdb_api_key is not set — TMDB sync will be disabled")
+		log.Println("[WARN] Set a valid TMDB API key in config.yaml or via the admin settings panel")
 	}
 
 	if len(errs) > 0 {
