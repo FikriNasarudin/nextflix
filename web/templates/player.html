@@ -1,0 +1,11 @@
+{{define "content"}}
+<div class="player-wrapper">
+  <video id="video" class="player-video" controls autoplay></video>
+  <div class="player-controls">
+    <button id="qualityBtn" class="quality-btn">480p</button>
+    <span class="player-title" id="playerTitle"></span>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="/static/js/player.js"></script>
+{{end}}

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"database/sql"
+	"html/template"
 	"log"
 	"net/http"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"nextflix/internal/admin"
 	"nextflix/internal/auth"
 	"nextflix/internal/middleware"
+	"nextflix/web"
 )
 
 type Router struct {
@@ -44,6 +46,7 @@ func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string) *Router {
 	r.mountProgress()
 	r.mountTrending()
 	r.mountRecommendations()
+	r.mountFrontend()
 	r.mountAdmin()
 
 	log.Println("Routes registered")
@@ -76,6 +79,24 @@ func (r *Router) mountTrending() {
 func (r *Router) mountRecommendations() {
 	rh := NewRecommendationHandler(r.db)
 	r.mux.Handle("GET /api/v1/recommendations", r.authMid(http.HandlerFunc(rh.List)))
+}
+
+func (r *Router) mountFrontend() {
+	r.mux.Handle("/static/", http.FileServer(http.FS(web.FS)))
+
+	r.mux.HandleFunc("/player.html", func(w http.ResponseWriter, req *http.Request) {
+		tmpl := template.Must(template.ParseFS(web.FS, "templates/layout.html", "templates/player.html"))
+		tmpl.Execute(w, map[string]string{"Title": "Player — Nextflix"})
+	})
+
+	r.mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/" && req.URL.Path != "/index.html" {
+			http.NotFound(w, req)
+			return
+		}
+		tmpl := template.Must(template.ParseFS(web.FS, "templates/layout.html", "templates/index.html"))
+		tmpl.Execute(w, map[string]string{"Title": "Nextflix"})
+	})
 }
 
 func (r *Router) mountAdmin() {

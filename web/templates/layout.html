@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.Title}}</title>
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="logo">NEXTFLIX</a>
+    <div class="nav-right" id="navRight">
+      <span class="nav-profile" id="navProfile"></span>
+    </div>
+  </div>
+</nav>
+<main id="main">{{template "content" .}}</main>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
