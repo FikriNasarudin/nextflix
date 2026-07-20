@@ -768,6 +768,7 @@ function playMedia(item) {
   overlay.style.display = 'flex';
 
   let retries = 0;
+  let tryGeneration = 0;
   const modes = item.hls_path ? ['direct', 'remux', 'hls'] : ['direct', 'remux'];
 
   function trySource() {
@@ -783,7 +784,17 @@ function playMedia(item) {
       playOverlayHLS(item.id, video);
       return;
     }
-    video.src = (mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id) + '?token=' + getToken();
+
+    const gen = ++tryGeneration;
+    const url = (mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id) + '?token=' + getToken();
+
+    video.onerror = null;
+    video.src = url;
+    video.onerror = function(e) {
+      if (gen !== tryGeneration) return;
+      console.error('playMedia: source error', video.error ? 'code=' + video.error.code + ' msg=' + video.error.message : 'unknown');
+      trySource();
+    };
     video.play().catch((e) => {
       if (retries >= modes.length) showToast('Playback failed: ' + e.message, 'error');
     });
@@ -813,10 +824,6 @@ function playMedia(item) {
     }
   }
 
-  video.onerror = function(e) {
-    console.error('playMedia: source error', video.error ? 'code=' + video.error.code + ' msg=' + video.error.message : 'unknown');
-    trySource();
-  };
   trySource();
 }
 

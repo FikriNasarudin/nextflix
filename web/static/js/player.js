@@ -264,6 +264,7 @@ function initPlayer(item) {
     if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
 
     let retries = 0;
+    let tryGeneration = 0;
     const modes = item.hls_path ? ['hls', 'remux', 'direct'] : ['direct', 'remux'];
 
     function trySource() {
@@ -279,17 +280,23 @@ function initPlayer(item) {
         playHLS();
         return;
       }
-      video.src = (mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id) + '?token=' + getToken();
+
+      const gen = ++tryGeneration;
+      const url = (mode === 'direct' ? API + '/stream/' + item.id : API + '/remux/' + item.id) + '?token=' + getToken();
+
+      video.onerror = null;
+      video.src = url;
+      video.onerror = function(e) {
+        if (gen !== tryGeneration) return;
+        console.error('playSource: source error', video.error ? 'code=' + video.error.code + ' msg=' + video.error.message : 'unknown');
+        trySource();
+      };
       populateTracks();
       video.play().catch((e) => {
         if (retries >= modes.length) showToast('Playback failed: ' + e.message, 'error');
       });
     }
 
-    video.onerror = function(e) {
-      console.error('playSource: source error', video.error ? 'code=' + video.error.code + ' msg=' + video.error.message : 'unknown');
-      trySource();
-    };
     trySource();
   }
 
