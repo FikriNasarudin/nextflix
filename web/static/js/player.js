@@ -897,8 +897,7 @@ function triggerMovieEnd(item) {
   overlay.style.display = 'flex';
 }
 
-const token = NextflixAPI.getToken();
-if (!token) { window.location.href = '/'; } else {
-  const id = getMediaId();
+if (!NextflixAPI.getToken()) { window.location.href = '/'; } else {
+  var id = getMediaId();
   if (id) loadMedia(id);
 }
