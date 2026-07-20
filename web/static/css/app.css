@@ -200,14 +200,6 @@ a { color:inherit; text-decoration:none; }
 .episode-name { font-size:.9rem; font-weight:500; margin-bottom:4px; }
 .episode-desc { font-size:.8rem; color:var(--muted); line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 
-/* ===== Overlay Player ===== */
-.player-overlay { position:fixed; inset:0; z-index:300; background:#000; display:flex; flex-direction:column; }
-.player-overlay video { width:100%; flex:1; object-fit:contain; background:#000; }
-.player-overlay-top { position:absolute; top:0; left:0; right:0; z-index:10; display:flex; align-items:center; gap:12px; padding:16px 24px; background:linear-gradient(180deg,rgba(0,0,0,.6),transparent); opacity:0; transition:opacity .3s; }
-.player-overlay:hover .player-overlay-top { opacity:1; }
-.player-overlay-close { background:none; border:none; color:#fff; font-size:1.5rem; cursor:pointer; padding:4px; }
-.player-overlay-title { font-size:1rem; font-weight:500; }
-
 /* ===== Bottom Nav (mobile) ===== */
 .bottom-nav { display:none; position:fixed; bottom:0; left:0; right:0; z-index:100; background:var(--nav-bg); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border-top:1px solid rgba(255,255,255,.06); padding:8px 0; justify-content:space-around; }
 .bottom-nav-item { display:flex; flex-direction:column; align-items:center; gap:2px; background:none; border:none; color:var(--muted); font-size:.65rem; cursor:pointer; padding:4px 12px; font-family:inherit; transition:color .15s; }
@@ -216,14 +208,16 @@ a { color:inherit; text-decoration:none; }
 
 /* ===== Player Overlay ===== */
 #playerOverlay {
-  position: fixed; inset: 0; z-index: 10000;
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0;
+  width: 100%; height: 100%; z-index: 10000;
   visibility: hidden; pointer-events: none; opacity: 0;
   transition: opacity 0.25s ease, visibility 0.25s ease;
 }
 #playerOverlay.active {
   visibility: visible; pointer-events: auto; opacity: 1;
 }
-.player-wrapper { position:fixed; inset:0; z-index:10001; background:#000; }
+.player-wrapper { position: fixed; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; z-index: 10001; background: #000; }
+.player-overlay-close { background:none; border:none; color:#fff; font-size:1.5rem; cursor:pointer; padding:4px; }
 .player-video-container { position:relative; width:100%; height:100%; background:#000; }
 .player-video { width:100%; height:100%; object-fit:contain; display:block; background:#000; }
 

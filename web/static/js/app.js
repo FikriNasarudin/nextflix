@@ -1088,7 +1088,10 @@ function showPlayerOverlay(id) {
   window._savedScrollY = window.scrollY;
 
   var overlay = document.getElementById('playerOverlay');
+  if (!overlay) return;
   overlay.classList.add('active');
+
+  if (typeof NextflixPlayer === 'undefined') return;
 
   if (NextflixPlayer.currentId === id) {
     NextflixPlayer.resume();
@@ -1099,8 +1102,9 @@ function showPlayerOverlay(id) {
 }
 
 function hidePlayerOverlay() {
-  NextflixPlayer.dismiss();
-  document.getElementById('playerOverlay').classList.remove('active');
+  if (typeof NextflixPlayer !== 'undefined') NextflixPlayer.dismiss();
+  var overlay = document.getElementById('playerOverlay');
+  if (overlay) overlay.classList.remove('active');
   requestAnimationFrame(function() {
     window.scrollTo(0, window._savedScrollY || 0);
   });
