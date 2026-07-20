@@ -83,7 +83,7 @@ func Defaults() *Config {
 		Encoder: EncoderConfig{
 			EnableAuto480pHLS:     true,
 			HLSSegmentDurationSec: 4,
-			FFmpegPreset:          "superfast",
+			FFmpegPreset:          "ultrafast",
 			HLSOutputDir:          "./data/hls",
 		},
 		UI: UIConfig{

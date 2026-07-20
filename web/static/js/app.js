@@ -449,10 +449,10 @@ function createCard(id, title, poster, progressPct, isTrending) {
     if (info.textContent) div.appendChild(info);
   }
 
-  if (item && item.hls_480p_path) {
+  if (item && item.hls_path) {
     const hlsBadge = document.createElement('span');
     hlsBadge.className = 'card-badge-480p';
-    hlsBadge.textContent = '480p';
+    hlsBadge.textContent = 'HD';
     div.appendChild(hlsBadge);
   }
 
@@ -621,7 +621,7 @@ function openDetail(item) {
     ? (item.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + item.poster_path : item.poster_path)
     : '';
 
-  if (item.hls_480p_path) meta.push('480p');
+  if (item.hls_path) meta.push('HD');
 
   const isTV = item.media_type === 'tv';
 
@@ -791,7 +791,7 @@ function playMedia(item) {
 
   function playOverlayHLS(id, v) {
     if (overlayHlsInstance) { overlayHlsInstance.destroy(); overlayHlsInstance = null; }
-    const url = API + '/hls/' + id + '/480p.m3u8';
+    const url = API + '/hls/' + id + '/index.m3u8';
     if (v.canPlayType('application/vnd.apple.mpegurl')) {
       v.src = url;
       v.play();

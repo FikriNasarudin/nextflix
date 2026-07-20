@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 
 	"nextflix/internal/config"
 	"nextflix/internal/scanner"
@@ -35,6 +36,14 @@ func (e *Encoder) worker() {
 	}
 }
 
+type rendition struct {
+	name    string
+	res     string
+	bitrate string
+	maxrate string
+	bufsize string
+}
+
 func (e *Encoder) encode(mediaID int64, inputPath string) error {
 	outputDir := filepath.Join(e.cfg.HLSOutputDir, fmt.Sprintf("%d", mediaID))
 
@@ -47,35 +56,83 @@ func (e *Encoder) encode(mediaID int64, inputPath string) error {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	playlistPath := filepath.Join(outputDir, "480p.m3u8")
-
-	args := []string{
-		"-n", "19",
-		"ffmpeg",
-		"-i", inputPath,
-		"-vf", "scale=-2:480",
-		"-c:v", "libx264",
-		"-preset", e.cfg.FFmpegPreset,
-		"-c:a", "aac",
-		"-f", "hls",
-		"-hls_time", fmt.Sprintf("%d", e.cfg.HLSSegmentDurationSec),
-		"-hls_list_size", "0",
-		playlistPath,
+	renditions := []rendition{
+		{name: "480p", res: "scale=-2:480", bitrate: "800k", maxrate: "1000k", bufsize: "1600k"},
+		{name: "1080p", res: "scale=-2:1080", bitrate: "4000k", maxrate: "5000k", bufsize: "8000k"},
 	}
 
-	cmd := exec.Command("nice", args...)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(renditions))
 
-	log.Printf("Encoder: encoding media=%d to 480p HLS", mediaID)
+	for _, r := range renditions {
+		wg.Add(1)
+		r := r
+		go func() {
+			defer wg.Done()
+			segPattern := filepath.Join(outputDir, r.name+"_%03d.ts")
+			playlist := filepath.Join(outputDir, r.name+".m3u8")
+			args := []string{
+				"-n", "19",
+				"ffmpeg",
+				"-i", inputPath,
+				"-vf", r.res,
+				"-c:v", "libx264",
+				"-b:v", r.bitrate,
+				"-maxrate", r.maxrate,
+				"-bufsize", r.bufsize,
+				"-preset", e.cfg.FFmpegPreset,
+				"-threads", "1",
+				"-max_muxing_queue_size", "1024",
+				"-c:a", "aac",
+				"-f", "hls",
+				"-hls_time", fmt.Sprintf("%d", e.cfg.HLSSegmentDurationSec),
+				"-hls_list_size", "0",
+				"-hls_segment_filename", segPattern,
+				playlist,
+			}
+			cmd := exec.Command("nice", args...)
+			log.Printf("Encoder: encoding media=%d → %s (%s)", mediaID, r.name, r.bitrate)
+			if err := cmd.Run(); err != nil {
+				errCh <- fmt.Errorf("%s ffmpeg: %w", r.name, err)
+			}
+		}()
+	}
 
-	if err := cmd.Run(); err != nil {
+	wg.Wait()
+	close(errCh)
+
+	var firstErr error
+	for err := range errCh {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	if firstErr != nil {
 		os.RemoveAll(outputDir)
-		return fmt.Errorf("ffmpeg: %w", err)
+		return firstErr
+	}
+
+	playlistPath := filepath.Join(outputDir, "index.m3u8")
+	var masterContent string
+	masterContent += "#EXTM3U\n"
+	for _, r := range renditions {
+		bandwidth := "1000000"
+		resolution := "854x480"
+		if r.name == "1080p" {
+			bandwidth = "5000000"
+			resolution = "1920x1080"
+		}
+		masterContent += fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%s,RESOLUTION=%s\n", bandwidth, resolution)
+		masterContent += r.name + ".m3u8\n"
+	}
+
+	if err := os.WriteFile(playlistPath, []byte(masterContent), 0644); err != nil {
+		os.RemoveAll(outputDir)
+		return fmt.Errorf("write master: %w", err)
 	}
 
 	e.db.Exec(`UPDATE media_items SET hls_480p_path = ? WHERE id = ?`, playlistPath, mediaID)
-	log.Printf("Encoder: complete media=%d → %s", mediaID, playlistPath)
+	log.Printf("Encoder: complete media=%d → %s (480p + 1080p ABR)", mediaID, playlistPath)
 
 	return nil
 }

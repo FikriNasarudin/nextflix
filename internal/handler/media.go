@@ -77,7 +77,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		EpisodeTitle     string   `json:"episode_title"`
 		Year             string   `json:"year"`
 		Overview         string   `json:"overview"`
-		HLS480pPath      string   `json:"hls_480p_path"`
+		HLS480pPath      string   `json:"hls_path"`
 		Container        string   `json:"container"`
 		Tags             []string `json:"tags"`
 		CreatedAt        string   `json:"created_at"`

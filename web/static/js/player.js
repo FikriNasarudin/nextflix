@@ -1,5 +1,4 @@
 const API = '/api/v1';
-let CURRENT_QUALITY = 'direct';
 let VIDEO_ID = null;
 let DURATION = 0;
 let hlsInstance = null;
@@ -105,14 +104,11 @@ function switchEpisode(ep) {
   if (drawer) drawer.style.display = 'none';
 
   if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-  CURRENT_QUALITY = 'direct';
-  document.getElementById('qualityBtn').textContent = 'direct';
   playSource();
 }
 
 function initPlayer(item) {
   const video = document.getElementById('video');
-  const qualityBtn = document.getElementById('qualityBtn');
   const subSelect = document.getElementById('subtitleSelect');
   const audioSelect = document.getElementById('audioSelect');
   const episodesBtn = document.getElementById('episodesBtn');
@@ -192,7 +188,7 @@ function initPlayer(item) {
 
   function playHLS() {
     if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-    const url = API + '/hls/' + item.id + '/480p.m3u8';
+    const url = API + '/hls/' + item.id + '/index.m3u8';
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = url;
       populateTracks();
@@ -226,8 +222,6 @@ function initPlayer(item) {
       hlsInstance.on(Hls.Events.ERROR, (event, data) => {
         if (data.fatal) {
           console.warn('HLS fatal error, falling back to remux');
-          CURRENT_QUALITY = 'direct';
-          qualityBtn.textContent = 'direct';
           video.src = API + '/remux/' + item.id;
           video.play();
         }
@@ -239,9 +233,7 @@ function initPlayer(item) {
     if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
 
     let retries = 0;
-    const modes = CURRENT_QUALITY === 'hls'
-      ? ['hls', 'remux']
-      : ['direct', 'remux', 'hls'];
+    const modes = item.hls_path ? ['hls', 'remux', 'direct'] : ['direct', 'remux'];
 
     function trySource() {
       if (retries >= modes.length) {
@@ -268,16 +260,6 @@ function initPlayer(item) {
       trySource();
     };
     trySource();
-  }
-
-  if (item.hls_480p_path) {
-    qualityBtn.addEventListener('click', () => {
-      CURRENT_QUALITY = CURRENT_QUALITY === 'direct' ? 'hls' : 'direct';
-      qualityBtn.textContent = CURRENT_QUALITY;
-      playSource();
-    });
-  } else {
-    qualityBtn.style.display = 'none';
   }
 
   playSource();
