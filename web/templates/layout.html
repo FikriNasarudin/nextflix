@@ -11,12 +11,46 @@
 <nav class="nav">
   <div class="nav-inner">
     <a href="/" class="logo">NEXTFLIX</a>
-    <div class="nav-links" id="navLinks"></div>
+    <div class="nav-links" id="navLinks">
+      <button class="nav-link" data-filter="all">Home</button>
+      <button class="nav-link" data-filter="movie">Movies</button>
+      <button class="nav-link" data-filter="tv">TV Shows</button>
+    </div>
     <div class="nav-right" id="navRight">
       <span class="nav-profile" id="navProfile"></span>
+      <button class="nav-link" id="btnLogout" style="display:none">Sign Out</button>
     </div>
   </div>
 </nav>
+
+<nav class="bottom-nav" id="bottomNav">
+  <button class="bottom-nav-item active" data-filter="all">
+    <span class="bottom-nav-icon">🏠</span>
+    <span>Home</span>
+  </button>
+  <button class="bottom-nav-item" data-filter="movie">
+    <span class="bottom-nav-icon">🎬</span>
+    <span>Movies</span>
+  </button>
+  <button class="bottom-nav-item" data-filter="tv">
+    <span class="bottom-nav-icon">📺</span>
+    <span>TV</span>
+  </button>
+  <button class="bottom-nav-item" id="bottomSearch">
+    <span class="bottom-nav-icon">🔍</span>
+    <span>Search</span>
+  </button>
+</nav>
+
+<div id="detailModal" class="modal-overlay-global">
+  <div class="detail-modal">
+    <div class="detail-backdrop" id="detailBackdrop">
+      <button class="detail-close" id="detailClose">✕</button>
+    </div>
+    <div class="detail-body" id="detailBody"></div>
+  </div>
+</div>
+
 <main id="main">{{template "content" .}}</main>
 <script src="/static/js/app.js"></script>
 </body>

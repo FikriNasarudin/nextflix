@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -314,44 +315,161 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 		log.Printf("Scanner: parse duration %s: %v", result.Format.Duration, err)
 	}
 
-	var insertSQL string
-	var insertArgs []any
-
 	parsed := ParseMedia(path, mediaType, s.cfg.MediaDir)
-	title := parsed.Title
 
-	if libraryID > 0 {
-		insertSQL = `INSERT INTO media_items (library_id, title, file_path, duration_seconds, media_type, show_name, season_number, episode_number, episode_title, year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-		insertArgs = []any{libraryID, title, path, duration, mediaType, parsed.ShowName, parsed.SeasonNumber, parsed.EpisodeNumber, parsed.EpisodeTitle, parsed.Year}
-	} else {
-		insertSQL = `INSERT INTO media_items (title, file_path, duration_seconds, media_type, show_name, season_number, episode_number, episode_title, year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-		insertArgs = []any{title, path, duration, mediaType, parsed.ShowName, parsed.SeasonNumber, parsed.EpisodeNumber, parsed.EpisodeTitle, parsed.Year}
+	if mediaType == "movie" {
+		parsed = s.parseMovieFromDir(path, parsed)
 	}
 
-	res, err := s.db.Exec(insertSQL, insertArgs...)
-	if err != nil {
-		log.Printf("Scanner: insert error %s: %v", path, err)
-		return
-	}
+	parsed.TmdbID = s.resolveTmdbID(path, parsed, mediaType)
 
-	id, _ := res.LastInsertId()
-	log.Printf("Scanner: added %s (id=%d, library=%d, type=%s, duration=%ds)", title, id, libraryID, mediaType, duration)
+	groupID := s.resolveGroupID(path, libraryID)
+	parsed.GroupID = groupID
 
-	isHD := false
-	for _, stream := range result.Streams {
-		if stream.CodecType == "video" && stream.Height >= 720 {
-			isHD = true
-			break
+	episodes := []ParsedMedia{parsed}
+	if parsed.EpisodeEnd > parsed.EpisodeNumber && parsed.SeasonNumber > 0 {
+		episodes = nil
+		for ep := parsed.EpisodeNumber; ep <= parsed.EpisodeEnd; ep++ {
+			e := parsed
+			e.EpisodeNumber = ep
+			e.EpisodeEnd = 0
+			e.Title = fmt.Sprintf("%s S%02dE%02d", parsed.ShowName, parsed.SeasonNumber, ep)
+			episodes = append(episodes, e)
 		}
 	}
 
-	if isHD {
-		s.encoderCh <- EncoderJob{MediaID: id, FilePath: path}
+	tmdbID := parsed.TmdbID
+
+	for _, ep := range episodes {
+		title := ep.Title
+		var insertSQL string
+		var insertArgs []any
+
+		if libraryID > 0 {
+			insertSQL = `INSERT INTO media_items (library_id, title, file_path, duration_seconds, media_type, show_name, season_number, episode_number, episode_title, year, tmdb_id, group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			insertArgs = []any{libraryID, title, path, duration, mediaType, ep.ShowName, ep.SeasonNumber, ep.EpisodeNumber, ep.EpisodeTitle, ep.Year, tmdbID, groupID}
+		} else {
+			insertSQL = `INSERT INTO media_items (title, file_path, duration_seconds, media_type, show_name, season_number, episode_number, episode_title, year, tmdb_id, group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			insertArgs = []any{title, path, duration, mediaType, ep.ShowName, ep.SeasonNumber, ep.EpisodeNumber, ep.EpisodeTitle, ep.Year, tmdbID, groupID}
+		}
+
+		res, err := s.db.Exec(insertSQL, insertArgs...)
+		if err != nil {
+			log.Printf("Scanner: insert error %s: %v", path, err)
+			continue
+		}
+
+		id, _ := res.LastInsertId()
+		log.Printf("Scanner: added %s (id=%d, library=%d, type=%s, duration=%ds)", title, id, libraryID, mediaType, duration)
+
+		isHD := false
+		for _, stream := range result.Streams {
+			if stream.CodecType == "video" && stream.Height >= 720 {
+				isHD = true
+				break
+			}
+		}
+
+		if isHD {
+			s.encoderCh <- EncoderJob{MediaID: id, FilePath: path}
+		}
+
+		s.detectLocalImages(id, path, ep.ShowName, ep.SeasonNumber, mediaType)
+		s.detectSubtitles(id, path)
+		s.storeAudioTracks(id, result.Streams)
+	}
+}
+
+func (s *Scanner) parseMovieFromDir(path string, fallback ParsedMedia) ParsedMedia {
+	dir := filepath.Dir(path)
+	rel, err := filepath.Rel(s.cfg.MediaDir, dir)
+	if err != nil || rel == "." {
+		return fallback
+	}
+	parts := strings.SplitN(rel, string(filepath.Separator), 2)
+	if len(parts) < 1 {
+		return fallback
+	}
+	dirName := parts[len(parts)-1]
+	if dirName == "" || dirName == "." {
+		return fallback
 	}
 
-	s.detectLocalImages(id, path, parsed.ShowName, parsed.SeasonNumber, mediaType)
-	s.detectSubtitles(id, path)
-	s.storeAudioTracks(id, result.Streams)
+	cleaned := strings.ToLower(dirName)
+	cleaned = stripQualityTags(cleaned)
+	cleaned = strings.TrimSpace(yearRe.ReplaceAllString(cleaned, ""))
+	cleaned = strings.TrimSpace(strings.TrimRight(cleaned, " .-_"))
+
+	year := extractYearFromDir(dirName)
+
+	var result ParsedMedia
+	result.Title = titleCase(cleaned)
+	result.Year = year
+	if year != "" {
+		result.Title = strings.TrimSpace(result.Title + " (" + year + ")")
+	}
+	result.TmdbID = extractTmdbIDFromPath(dir, s.cfg.MediaDir, "movie")
+	if result.Title == "" || result.Title == " " {
+		return fallback
+	}
+	return result
+}
+
+func (s *Scanner) resolveTmdbID(path string, parsed ParsedMedia, mediaType string) int64 {
+	dir := filepath.Dir(path)
+
+	if id := readTmdbIDFile(dir); id > 0 {
+		return id
+	}
+	parentDir := filepath.Dir(dir)
+	if parentDir != dir {
+		if id := readTmdbIDFile(parentDir); id > 0 {
+			return id
+		}
+	}
+	if id := extractTmdbIDFromPath(path, s.cfg.MediaDir, mediaType); id > 0 {
+		return id
+	}
+	return 0
+}
+
+func readTmdbIDFile(dir string) int64 {
+	p := filepath.Join(dir, ".tmdbid")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return 0
+	}
+	id, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return id
+}
+
+func (s *Scanner) resolveGroupID(path string, libraryID int64) int64 {
+	dir := filepath.Dir(path)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	var videoFiles []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(e.Name()))
+		if videoExts[ext] {
+			videoFiles = append(videoFiles, e.Name())
+		}
+	}
+	if len(videoFiles) < 2 {
+		return 0
+	}
+	hash := int64(0)
+	for _, c := range dir {
+		hash = hash*31 + int64(c)
+	}
+	return hash
 }
 
 func (s *Scanner) detectLocalImages(mediaID int64, filePath, showName string, seasonNumber int, mediaType string) {

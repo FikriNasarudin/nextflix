@@ -14,11 +14,17 @@ type ParsedMedia struct {
 	EpisodeNumber int
 	EpisodeTitle  string
 	Year          string
+	TmdbID        int64
+	EpisodeEnd    int
+	GroupID       int64
 }
 
 var epRegex = regexp.MustCompile(`(?i)[\s._-]*[Ss](\d+)[\s._-]*[Ee](\d+)`)
+var multiEpRegex = regexp.MustCompile(`(?i)[\s._-]*[Ss](\d+)[\s._-]*[Ee](\d+)[\s._-]*[-–][\s._-]*[Ee]?(\d+)`)
 var altEpRegex = regexp.MustCompile(`(?i)[\s._-]*(\d+)[xX](\d+)`)
 var yearRegex = regexp.MustCompile(`[.\s-]\(?(\d{4})\)?[\s.-]*$`)
+var tmdbidBracket = regexp.MustCompile(`(?i)\[tmdbid[=:_]?(\d+)\]`)
+var imdbidBracket = regexp.MustCompile(`(?i)\[imdbid[=:_]?(tt\d+)\]`)
 var yearRe = regexp.MustCompile(`[.\s-]\(?\d{4}\)?\s*$`)
 var qualityTags = []string{
 	"bluray-1080p", "bluray-720p", "bluray-2160p", "bluray",
@@ -48,16 +54,20 @@ func ParseMedia(path, mediaType string, mediaDir string) ParsedMedia {
 	result.Year = extractYear(cleaned)
 
 	if mediaType == "tv" {
-		showName, season, episode, epTitle := parseTV(parts, cleaned)
+		showName, season, episode, episodeEnd, epTitle := parseTV(parts, cleaned)
 		result.ShowName = showName
 		result.SeasonNumber = season
 		result.EpisodeNumber = episode
+		result.EpisodeEnd = episodeEnd
 		result.EpisodeTitle = epTitle
 
 		if showName != "" {
 			result.Title = showName
 			if episode > 0 {
 				result.Title += " S" + padZero(season) + "E" + padZero(episode)
+				if episodeEnd > 0 {
+					result.Title += "-E" + padZero(episodeEnd)
+				}
 				if epTitle != "" {
 					result.Title += " - " + epTitle
 				}
@@ -76,8 +86,8 @@ func ParseMedia(path, mediaType string, mediaDir string) ParsedMedia {
 	return result
 }
 
-func parseTV(parts []string, cleaned string) (showName string, season, episode int, epTitle string) {
-	season, episode = extractEpisodes(cleaned)
+func parseTV(parts []string, cleaned string) (showName string, season, episode, episodeEnd int, epTitle string) {
+	season, episode, episodeEnd = extractEpisodes(cleaned)
 
 	cleanedNoEp := cleaned
 	if season > 0 {
@@ -142,18 +152,63 @@ func parseTV(parts []string, cleaned string) (showName string, season, episode i
 	return
 }
 
-func extractEpisodes(s string) (int, int) {
+func extractEpisodes(s string) (season, episode, episodeEnd int) {
+	if m := multiEpRegex.FindStringSubmatch(s); len(m) >= 4 {
+		sn, _ := strconv.Atoi(m[1])
+		en, _ := strconv.Atoi(m[2])
+		ee, _ := strconv.Atoi(m[3])
+		return sn, en, ee
+	}
 	if m := epRegex.FindStringSubmatch(s); len(m) >= 3 {
 		sn, _ := strconv.Atoi(m[1])
 		en, _ := strconv.Atoi(m[2])
-		return sn, en
+		return sn, en, 0
 	}
 	if m := altEpRegex.FindStringSubmatch(s); len(m) >= 3 {
 		sn, _ := strconv.Atoi(m[1])
 		en, _ := strconv.Atoi(m[2])
-		return sn, en
+		return sn, en, 0
 	}
-	return 0, 0
+	return 0, 0, 0
+}
+
+func extractTmdbIDFromPath(path, mediaDir string, mediaType string) int64 {
+	rel, err := filepath.Rel(mediaDir, path)
+	if err != nil {
+		return 0
+	}
+	parts := splitPath(rel)
+	for _, p := range parts {
+		if m := tmdbidBracket.FindStringSubmatch(p); len(m) >= 2 {
+			id, _ := strconv.ParseInt(m[1], 10, 64)
+			return id
+		}
+	}
+	return 0
+}
+
+func extractImdbIDFromPath(path, mediaDir string) string {
+	rel, err := filepath.Rel(mediaDir, path)
+	if err != nil {
+		return ""
+	}
+	parts := splitPath(rel)
+	for _, p := range parts {
+		if m := imdbidBracket.FindStringSubmatch(p); len(m) >= 2 {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+func extractYearFromDir(dirName string) string {
+	if m := yearRegex.FindStringSubmatch(dirName); len(m) >= 2 {
+		year := m[1]
+		if y, err := strconv.Atoi(year); err == nil && y >= 1900 && y <= 2099 {
+			return year
+		}
+	}
+	return ""
 }
 
 func extractYear(s string) string {

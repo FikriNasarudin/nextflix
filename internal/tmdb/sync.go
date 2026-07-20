@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net/url"
 	"time"
 )
 
@@ -38,11 +39,83 @@ func (s *Sync) sync() {
 	if err := s.syncGenres(); err != nil {
 		log.Printf("TMDB: genres error: %v", err)
 	}
+	if err := s.resolveMissingTmdbIDs(); err != nil {
+		log.Printf("TMDB: resolve IDs error: %v", err)
+	}
 	if err := s.enrichMedia(); err != nil {
 		log.Printf("TMDB: enrich error: %v", err)
 	}
 
 	log.Println("TMDB: sync complete")
+}
+
+type searchResult struct {
+	Results []struct {
+		ID           int64   `json:"id"`
+		Title        string  `json:"title"`
+		Name         string  `json:"name"`
+		ReleaseDate  string  `json:"release_date"`
+		FirstAirDate string  `json:"first_air_date"`
+		Popularity   float64 `json:"popularity"`
+	} `json:"results"`
+}
+
+func (s *Sync) resolveMissingTmdbIDs() error {
+	rows, err := s.db.Query(`SELECT id, title, year, media_type FROM media_items WHERE (tmdb_id IS NULL OR tmdb_id = 0) AND title != '' AND title != 'Unknown'`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type missingRow struct {
+		ID        int64
+		Title     string
+		Year      string
+		MediaType string
+	}
+	var missing []missingRow
+	for rows.Next() {
+		var m missingRow
+		rows.Scan(&m.ID, &m.Title, &m.Year, &m.MediaType)
+		missing = append(missing, m)
+	}
+
+	found := 0
+	for _, m := range missing {
+		id, err := s.searchTmdb(m.Title, m.Year, m.MediaType)
+		if err != nil {
+			continue
+		}
+		s.db.Exec(`UPDATE media_items SET tmdb_id = ? WHERE id = ?`, id, m.ID)
+		found++
+	}
+
+	if found > 0 {
+		log.Printf("TMDB: resolved %d/%d missing tmdb_ids", found, len(missing))
+	}
+	return nil
+}
+
+func (s *Sync) searchTmdb(title, year, mediaType string) (int64, error) {
+	query := url.QueryEscape(title)
+	path := fmt.Sprintf("/search/%s?query=%s", mediaTypePath(mediaType), query)
+	if year != "" {
+		yearParam := "year"
+		if mediaType == "tv" {
+			yearParam = "first_air_date_year"
+		}
+		path += fmt.Sprintf("&%s=%s", yearParam, year)
+	}
+
+	var result searchResult
+	if err := s.cli.Get(path, &result); err != nil {
+		return 0, err
+	}
+
+	if len(result.Results) > 0 {
+		return result.Results[0].ID, nil
+	}
+	return 0, fmt.Errorf("no results for %s", title)
 }
 
 type trendingResponse struct {

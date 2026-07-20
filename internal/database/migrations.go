@@ -218,6 +218,10 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 	// add overview column to media_items (may already exist in fresh installs)
 	db.Exec(`ALTER TABLE media_items ADD COLUMN overview TEXT DEFAULT ''`)
 
+	// v5: add group_id column for multi-version grouping
+	db.Exec(`ALTER TABLE media_items ADD COLUMN group_id INTEGER DEFAULT NULL`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_media_group ON media_items(group_id)`)
+
 	// v4: create image/subtitle/audio/collection tables (IF NOT EXISTS handles fresh installs)
 	db.Exec(`CREATE TABLE IF NOT EXISTS media_images (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,

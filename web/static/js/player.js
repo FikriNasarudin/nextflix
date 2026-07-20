@@ -1,5 +1,5 @@
 const API = '/api/v1';
-let CURRENT_QUALITY = '480p';
+let CURRENT_QUALITY = 'direct';
 let VIDEO_ID = null;
 let DURATION = 0;
 let hlsInstance = null;
@@ -107,52 +107,72 @@ function initPlayer(item) {
     }
   }
 
-  function playSource() {
+  function fallbackToDirect() {
     if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-    let url;
-    if (CURRENT_QUALITY === '480p') {
-      url = API + '/hls/' + item.id + '/480p.m3u8';
-      if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = url;
-        populateTracks();
-      } else if (window.Hls) {
-        hlsInstance = new Hls();
-        hlsInstance.loadSource(url);
-        hlsInstance.attachMedia(video);
-        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-          if (hlsInstance.subtitleTracks && hlsInstance.subtitleTracks.length) {
-            subSelect.style.display = 'inline-block';
-            hlsInstance.subtitleTracks.forEach((t, i) => {
-              const opt = document.createElement('option');
-              opt.value = 'hls-' + i;
-              opt.textContent = (t.lang || 'und').toUpperCase() + ' (embedded)';
-              subSelect.appendChild(opt);
-            });
-          }
-          if (hlsInstance.audioTracks && hlsInstance.audioTracks.length > 1) {
-            audioSelect.style.display = 'inline-block';
-            hlsInstance.audioTracks.forEach((t, i) => {
-              const opt = document.createElement('option');
-              opt.value = 'hls-' + i;
-              opt.textContent = (t.lang || 'und').toUpperCase() + ' (embedded)';
-              audioSelect.appendChild(opt);
-            });
-          }
-          populateTracks();
-        });
-      } else {
-        video.src = API + '/stream/' + item.id;
-        populateTracks();
-      }
-    } else {
-      video.src = API + '/stream/' + item.id;
-      populateTracks();
-    }
+    CURRENT_QUALITY = 'direct';
+    qualityBtn.textContent = 'direct';
+    video.src = API + '/stream/' + item.id;
+    populateTracks();
     video.play();
   }
 
+  function playHLS() {
+    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+    const url = API + '/hls/' + item.id + '/480p.m3u8';
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+      populateTracks();
+      video.play();
+    } else if (window.Hls) {
+      hlsInstance = new Hls();
+      hlsInstance.loadSource(url);
+      hlsInstance.attachMedia(video);
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (hlsInstance.subtitleTracks && hlsInstance.subtitleTracks.length) {
+          subSelect.style.display = 'inline-block';
+          hlsInstance.subtitleTracks.forEach((t, i) => {
+            const opt = document.createElement('option');
+            opt.value = 'hls-' + i;
+            opt.textContent = (t.lang || 'und').toUpperCase() + ' (embedded)';
+            subSelect.appendChild(opt);
+          });
+        }
+        if (hlsInstance.audioTracks && hlsInstance.audioTracks.length > 1) {
+          audioSelect.style.display = 'inline-block';
+          hlsInstance.audioTracks.forEach((t, i) => {
+            const opt = document.createElement('option');
+            opt.value = 'hls-' + i;
+            opt.textContent = (t.lang || 'und').toUpperCase() + ' (embedded)';
+            audioSelect.appendChild(opt);
+          });
+        }
+        populateTracks();
+        video.play();
+      });
+      hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+          console.warn('HLS fatal error, falling back to direct stream');
+          fallbackToDirect();
+        }
+      });
+    } else {
+      fallbackToDirect();
+    }
+  }
+
+  function playSource() {
+    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+    if (CURRENT_QUALITY === 'hls') {
+      playHLS();
+    } else {
+      video.src = API + '/stream/' + item.id;
+      populateTracks();
+      video.play();
+    }
+  }
+
   qualityBtn.addEventListener('click', () => {
-    CURRENT_QUALITY = CURRENT_QUALITY === '480p' ? '1080p' : '480p';
+    CURRENT_QUALITY = CURRENT_QUALITY === 'direct' ? 'hls' : 'direct';
     qualityBtn.textContent = CURRENT_QUALITY;
     playSource();
   });

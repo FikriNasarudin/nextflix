@@ -228,11 +228,12 @@ async function renderLibraries(el) {
       <h1>Libraries</h1>
       <button class="btn btn-primary" id="addLibBtn">+ Add Library</button>
     </div>
-    <table class="admin-table"><thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Actions</th></tr></thead><tbody>
+    <table class="admin-table"><thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Dir</th><th>Actions</th></tr></thead><tbody>
       ${libs.map(l => `<tr>
         <td>${l.id}</td>
         <td>${l.name}</td>
         <td>${l.description || ''}</td>
+        <td>${l.library_dir || '—'}</td>
         <td>
           <button class="btn btn-sm btn-outline" onclick="editLib(${l.id})">Edit</button>
           <button class="btn btn-sm btn-danger" onclick="deleteLib(${l.id})">Del</button>
@@ -243,6 +244,7 @@ async function renderLibraries(el) {
   document.getElementById('addLibBtn').onclick = () => {
     modal('Add Library', `
       <div class="form-row"><label>Name</label><input name="name" placeholder="Library name"></div>
+      <div class="form-row"><label>Directory</label><input name="library_dir" placeholder="e.g. Movies (subdir under media dir)"></div>
       <div class="form-row"><label>Description</label><input name="description" placeholder="Optional description"></div>
     `, async () => {
       const d = formData(document.querySelector('.modal-body'));
@@ -255,9 +257,13 @@ async function renderLibraries(el) {
 }
 
 window.editLib = async (id) => {
+  const libs = await api('/libraries');
+  const l = (libs||[]).find(x => x.id === id);
+  if (!l) return;
   modal('Edit Library', `
-    <div class="form-row"><label>Name</label><input name="name" placeholder="Name"></div>
-    <div class="form-row"><label>Description</label><input name="description" placeholder="Description"></div>
+    <div class="form-row"><label>Name</label><input name="name" value="${l.name}"></div>
+    <div class="form-row"><label>Directory</label><input name="library_dir" value="${l.library_dir||''}" placeholder="e.g. Movies"></div>
+    <div class="form-row"><label>Description</label><input name="description" value="${l.description||''}" placeholder="Description"></div>
   `, async () => {
     const d = formData(document.querySelector('.modal-body'));
     await api('/libraries/' + id, { method: 'PUT', body: JSON.stringify(d) });
