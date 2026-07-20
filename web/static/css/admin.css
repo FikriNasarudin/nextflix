@@ -1,0 +1,57 @@
+.admin-layout { display:flex; min-height:100vh; background:var(--bg); }
+.admin-sidebar { width:220px; background:var(--surface); border-right:1px solid #2a2a2a; padding:24px 0; flex-shrink:0; }
+.admin-logo { display:block; padding:0 24px 24px; font-size:1.2rem; font-weight:700; color:var(--accent); letter-spacing:2px; border-bottom:1px solid #2a2a2a; margin-bottom:16px; }
+.admin-nav { display:flex; flex-direction:column; gap:2px; }
+.admin-nav-link { display:block; padding:10px 24px; color:var(--muted); font-size:.9rem; transition:all .15s; border-left:3px solid transparent; }
+.admin-nav-link:hover, .admin-nav-link.active { color:var(--text); background:rgba(255,255,255,.05); border-left-color:var(--accent); }
+.admin-main { flex:1; padding:32px 40px; overflow-y:auto; }
+.admin-main h1 { font-size:1.5rem; font-weight:600; margin-bottom:24px; }
+
+.card-stats { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:16px; margin-bottom:32px; }
+.stat-card { background:var(--surface); border-radius:8px; padding:20px; text-align:center; }
+.stat-card .stat-value { font-size:2rem; font-weight:700; color:var(--accent); }
+.stat-card .stat-label { font-size:.85rem; color:var(--muted); margin-top:4px; }
+
+.admin-table { width:100%; border-collapse:collapse; background:var(--surface); border-radius:8px; overflow:hidden; }
+.admin-table th,.admin-table td { padding:12px 16px; text-align:left; font-size:.85rem; }
+.admin-table th { background:#2a2a2a; color:var(--muted); font-weight:600; text-transform:uppercase; font-size:.75rem; letter-spacing:.5px; }
+.admin-table td { border-bottom:1px solid #2a2a2a; }
+.admin-table tr:last-child td { border-bottom:none; }
+.admin-table tr:hover td { background:rgba(255,255,255,.03); }
+
+.btn { padding:8px 16px; border:none; border-radius:4px; cursor:pointer; font-size:.85rem; font-weight:500; }
+.btn-primary { background:var(--accent); color:var(--text); }
+.btn-primary:hover { background:#f40612; }
+.btn-sm { padding:4px 10px; font-size:.8rem; }
+.btn-danger { background:#c62828; color:var(--text); }
+.btn-danger:hover { background:#e53935; }
+.btn-outline { background:transparent; border:1px solid var(--muted); color:var(--text); }
+.btn-outline:hover { border-color:var(--text); }
+
+.admin-form { display:flex; flex-direction:column; gap:12px; max-width:400px; }
+.admin-form label { font-size:.85rem; color:var(--muted); }
+.admin-form input,.admin-form select,.admin-form textarea { padding:10px 12px; border:1px solid #333; border-radius:4px; background:#2a2a2a; color:var(--text); font-size:.9rem; }
+.admin-form input:focus,.admin-form select:focus { outline:none; border-color:var(--accent); }
+
+.modal-overlay { display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,.7); align-items:center; justify-content:center; }
+.modal-overlay.open { display:flex; }
+.modal-box { background:var(--surface); border-radius:8px; padding:24px; min-width:360px; max-width:500px; max-height:80vh; overflow-y:auto; }
+.modal-box h2 { font-size:1.2rem; margin-bottom:16px; }
+.modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+
+.form-row { display:flex; flex-direction:column; gap:6px; }
+.form-row label { font-size:.85rem; color:var(--muted); }
+.form-row input,.form-row select { padding:10px 12px; border:1px solid #333; border-radius:4px; background:#2a2a2a; color:var(--text); font-size:.9rem; }
+
+.toast { position:fixed; bottom:24px; right:24px; padding:12px 20px; border-radius:6px; font-size:.85rem; z-index:300; animation:fadeIn .3s; }
+.toast-success { background:#2e7d32; color:var(--text); }
+.toast-error { background:#c62828; color:var(--text); }
+@keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+
+.tag-badge { display:inline-block; padding:2px 8px; border-radius:12px; background:#333; color:var(--muted); font-size:.75rem; margin:1px; }
+.access-grid { display:flex; flex-wrap:wrap; gap:8px; }
+.access-chip { display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:6px; background:#2a2a2a; cursor:pointer; font-size:.85rem; user-select:none; }
+.access-chip.selected { background:var(--accent); color:var(--text); }
+
+.empty-state { text-align:center; padding:40px; color:var(--muted); font-size:.9rem; }
+.empty-state p { margin-bottom:12px; }

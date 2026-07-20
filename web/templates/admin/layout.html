@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin — Nextflix</title>
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body>
+<div class="admin-layout">
+  <aside class="admin-sidebar">
+    <a href="/" class="admin-logo">NEXTFLIX</a>
+    <nav class="admin-nav">
+      <a href="/admin" class="admin-nav-link" data-section="dashboard">Dashboard</a>
+      <a href="/admin/users" class="admin-nav-link" data-section="users">Users</a>
+      <a href="/admin/libraries" class="admin-nav-link" data-section="libraries">Libraries</a>
+      <a href="/admin/tags" class="admin-nav-link" data-section="tags">Tags</a>
+      <a href="/admin/media" class="admin-nav-link" data-section="media">Media</a>
+      <a href="/admin/settings" class="admin-nav-link" data-section="settings">Settings</a>
+    </nav>
+  </aside>
+  <main class="admin-main">
+    <div id="adminContent">
+      <h1>Loading...</h1>
+    </div>
+  </main>
+</div>
+<script src="/static/js/admin.js"></script>
+</body>
+</html>

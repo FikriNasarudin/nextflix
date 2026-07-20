@@ -110,9 +110,7 @@ SQLite3 with WAL mode. 12 tables managed via raw SQL (no ORM). Schema is auto-cr
 | `GET` | `/api/v1/media` | Browse media (filtered by profile) |
 | `GET` | `/api/v1/stream/{id}` | Direct Play stream |
 | `GET` | `/api/v1/remux/{id}` | Container remux stream |
-| `GET` | `/api/v1/hls/{id}/480p/playlist.m3u8` | 480p HLS playlist |
-| `GET` | `/api/v1/hls/{id}/1080p/playlist.m3u8` | 1080p HLS playlist |
-| `GET` | `/api/v1/hls/{id}/segments/{segment}` | HLS segment file |
+| `GET` | `/api/v1/hls/{id}/{rest...}` | HLS files (playlist.m3u8, segments/*.ts) |
 | `GET` | `/api/v1/progress` | Continue Watching list |
 | `PUT` | `/api/v1/progress` | Save playback position |
 | `GET` | `/api/v1/recommendations` | All recommendation rows |
