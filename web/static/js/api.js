@@ -28,6 +28,14 @@ window.NextflixAPI = (function() {
     return conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g')
   }
 
+    return {
+    API: API,
+    getToken: getToken,
+    setToken: setToken,
+    clearToken: clearToken,
+    showToast: showToast,
+    isSlowConnection: isSlowConnection,
+
     imageUrl: function(path, id, type, size) {
       type = type || 'poster';
       size = size || 'w342';
@@ -45,14 +53,6 @@ window.NextflixAPI = (function() {
       if (id) return API + '/image/local/backdrop/' + id;
       return '';
     },
-
-    return {
-    API: API,
-    getToken: getToken,
-    setToken: setToken,
-    clearToken: clearToken,
-    showToast: showToast,
-    isSlowConnection: isSlowConnection,
 
     fetch: async function(path, opts) {
       opts = opts || {}
