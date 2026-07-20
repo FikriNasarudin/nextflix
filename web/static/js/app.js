@@ -80,17 +80,6 @@ async function loadAll() {
 
   storeHomeSectionStates();
 
-  // View All click handlers
-  document.querySelectorAll('.row-view-all').forEach(el => {
-    el.addEventListener('click', function(e) {
-      e.stopPropagation();
-      const browse = this.dataset.browse;
-      if (browse) NextflixRouter.navigate('/browse/' + browse);
-      const nav = this.dataset.nav;
-      if (nav) NextflixRouter.navigate(nav);
-    });
-  });
-
   NextflixRouter.addRoute('/', function() { renderHomeView(); });
   NextflixRouter.addRoute('/detail/:id', function(params) { renderDetailPage(params); });
   NextflixRouter.addRoute('/browse/:section', function(params) { renderBrowsePage(params); });
@@ -136,7 +125,13 @@ function restoreHomeSections() {
 function renderHomeView() {
   document.getElementById('skeletonHero').style.display = 'none';
   document.getElementById('skeletonRow').style.display = 'none';
-  restoreHomeSections();
+  // Re-render all sections with original titles
+  renderContinueWatching(window._lastProgress);
+  renderBecauseYouWatched(window._lastBecause);
+  renderNewlyAdded(allMedia);
+  renderTrending(window._lastTrending);
+  renderCollections(allCollections);
+  storeHomeSectionStates();
   showPage('all');
 }
 
@@ -299,7 +294,7 @@ function renderMoviesPage() {
 
   if (continueMovies.length) {
     document.getElementById('continueRow').style.display = 'block';
-    document.getElementById('continueRow').querySelector('.row-title').innerHTML = 'Continue Watching <span class="row-view-all" data-browse="continue">View All →</span>';
+    document.getElementById('continueRow').querySelector('.row-title').innerHTML = 'Continue Watching <span class="row-view-all" data-nav="/browse/continue">View All →</span>';
     continueContainer.innerHTML = '';
     continueMovies.forEach(p => {
       const pct = p.duration_seconds ? Math.min(100, (p.position_seconds / p.duration_seconds) * 100) : 0;
@@ -311,7 +306,7 @@ function renderMoviesPage() {
 
   if (becauseMovies.length) {
     document.getElementById('becauseRow').style.display = 'block';
-    document.getElementById('becauseRow').querySelector('.row-title').innerHTML = 'Because You Watched <span class="row-view-all" data-browse="recommended">View All →</span>';
+    document.getElementById('becauseRow').querySelector('.row-title').innerHTML = 'Because You Watched <span class="row-view-all" data-nav="/browse/recommended">View All →</span>';
     becauseContainer.innerHTML = '';
     becauseMovies.forEach(b => becauseContainer.appendChild(createCard(b.media_id, b.title, b.poster_path, 0, false)));
   } else {
@@ -319,14 +314,14 @@ function renderMoviesPage() {
   }
 
   document.getElementById('newlyAddedRow').style.display = 'block';
-  document.getElementById('newlyAddedRow').querySelector('.row-title').innerHTML = 'Newly Added Movies <span class="row-view-all" data-browse="new">View All →</span>';
+  document.getElementById('newlyAddedRow').querySelector('.row-title').innerHTML = 'Newly Added Movies <span class="row-view-all" data-nav="/browse/new">View All →</span>';
   newlyContainer.innerHTML = '';
   const newMovies = movies.slice(0, 15);
   newMovies.forEach(m => newlyContainer.appendChild(createCard(m.id, m.title, m.poster_path, 0, false, 'NEW')));
 
   if (movieTrending.length) {
     document.getElementById('trendingRow').style.display = 'block';
-    document.getElementById('trendingRow').querySelector('.row-title').innerHTML = 'Top 10 Movies <span class="row-view-all" data-browse="trending">View All →</span>';
+    document.getElementById('trendingRow').querySelector('.row-title').innerHTML = 'Top 10 Movies <span class="row-view-all" data-nav="/browse/trending">View All →</span>';
     trendingContainer.innerHTML = '';
     movieTrending.forEach((t, idx) => {
       const card = createCard(null, t.title, t.poster_path, 0, true);
@@ -375,7 +370,7 @@ function renderTVPage() {
 
   if (continueTV.length) {
     document.getElementById('continueRow').style.display = 'block';
-    document.getElementById('continueRow').querySelector('.row-title').innerHTML = 'Continue Watching <span class="row-view-all" data-browse="continue">View All →</span>';
+    document.getElementById('continueRow').querySelector('.row-title').innerHTML = 'Continue Watching <span class="row-view-all" data-nav="/browse/continue">View All →</span>';
     continueContainer.innerHTML = '';
     continueTV.forEach(p => {
       const pct = p.duration_seconds ? Math.min(100, (p.position_seconds / p.duration_seconds) * 100) : 0;
@@ -387,7 +382,7 @@ function renderTVPage() {
 
   if (becauseTV.length) {
     document.getElementById('becauseRow').style.display = 'block';
-    document.getElementById('becauseRow').querySelector('.row-title').innerHTML = 'Because You Watched <span class="row-view-all" data-browse="recommended">View All →</span>';
+    document.getElementById('becauseRow').querySelector('.row-title').innerHTML = 'Because You Watched <span class="row-view-all" data-nav="/browse/recommended">View All →</span>';
     becauseContainer.innerHTML = '';
     becauseTV.forEach(b => becauseContainer.appendChild(createCard(b.media_id, b.title, b.poster_path, 0, false)));
   } else {
@@ -395,14 +390,14 @@ function renderTVPage() {
   }
 
   document.getElementById('newlyAddedRow').style.display = 'block';
-  document.getElementById('newlyAddedRow').querySelector('.row-title').innerHTML = 'Newly Added TV <span class="row-view-all" data-browse="new">View All →</span>';
+  document.getElementById('newlyAddedRow').querySelector('.row-title').innerHTML = 'Newly Added TV <span class="row-view-all" data-nav="/browse/new">View All →</span>';
   newlyContainer.innerHTML = '';
   const newTV = tv.slice(0, 15);
   newTV.forEach(m => newlyContainer.appendChild(createCard(m.id, m.title, m.poster_path, 0, false, 'NEW')));
 
   if (tvTrending.length) {
     document.getElementById('trendingRow').style.display = 'block';
-    document.getElementById('trendingRow').querySelector('.row-title').innerHTML = 'Top 10 TV <span class="row-view-all" data-browse="trending">View All →</span>';
+    document.getElementById('trendingRow').querySelector('.row-title').innerHTML = 'Top 10 TV <span class="row-view-all" data-nav="/browse/trending">View All →</span>';
     trendingContainer.innerHTML = '';
     tvTrending.forEach((t, idx) => {
       const card = createCard(null, t.title, t.poster_path, 0, true);
