@@ -86,12 +86,37 @@ async function renderDashboard(el) {
       `).join('') || '<div style="color:var(--muted);padding:12px 0">No activity yet</div>'}
     </div>`;
 
+  function pollScanProgress() {
+    const interval = setInterval(async () => {
+      const res = await fetch('/api/v1/admin/scan/status', { headers: { 'Authorization': 'Bearer ' + token() } });
+      if (!res.ok) { clearInterval(interval); return; }
+      const data = await res.json();
+      const progEl = document.getElementById('scanProgress');
+      if (!data.running) {
+        clearInterval(interval);
+        if (progEl) progEl.remove();
+        renderDashboard(el);
+        return;
+      }
+      if (!progEl) {
+        const pb = document.createElement('div');
+        pb.id = 'scanProgress';
+        pb.className = 'scan-progress';
+        pb.innerHTML = '<div class="scan-progress-bar"><div class="scan-progress-fill" id="scanFill"></div></div><div class="scan-progress-info" id="scanInfo"></div>';
+        document.getElementById('scanBtn').parentNode.after(pb);
+      }
+      const pct = data.total > 0 ? Math.min(100, (data.current / data.total) * 100) : 0;
+      document.getElementById('scanFill').style.width = pct + '%';
+      document.getElementById('scanInfo').textContent = (data.library ? data.library + ' — ' : '') + data.current + '/' + data.total + (data.last_item ? ' — ' + data.last_item : '');
+    }, 1500);
+  }
+
   document.getElementById('scanBtn').onclick = async () => {
     const btn = document.getElementById('scanBtn');
     btn.textContent = '⟳ Scanning...';
     btn.disabled = true;
     await fetch('/api/v1/admin/scan', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token() } });
-    setTimeout(() => { btn.textContent = '⟳ Scan Libraries'; btn.disabled = false; renderDashboard(el); }, 3000);
+    pollScanProgress();
   };
 }
 

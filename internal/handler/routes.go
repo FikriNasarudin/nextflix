@@ -13,6 +13,7 @@ import (
 	"nextflix/internal/admin"
 	"nextflix/internal/auth"
 	"nextflix/internal/middleware"
+	"nextflix/internal/scanner"
 	"nextflix/web"
 )
 
@@ -23,10 +24,10 @@ type Router struct {
 	hlsDir   string
 	authMid  func(http.Handler) http.Handler
 	adminMid func(http.Handler) http.Handler
-	scanFn   func()
+	scanner  *scanner.Scanner
 }
 
-func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, scanFn func()) *Router {
+func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, scn *scanner.Scanner) *Router {
 	r := &Router{
 		mux:      http.NewServeMux(),
 		db:       db,
@@ -34,16 +35,25 @@ func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, scanFn func()) 
 		hlsDir:   hlsDir,
 		authMid:  middleware.Auth(authMgr),
 		adminMid: middleware.RequireAdmin,
-		scanFn:   scanFn,
+		scanner:  scn,
 	}
 
 	authH := auth.NewHandler(db, authMgr)
 
 	r.mux.HandleFunc("POST /api/v1/auth/login", authH.Login)
 
-	r.mux.Handle("/api/v1/auth/me", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+	r.mux.Handle("GET /api/v1/auth/me", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		userID := middleware.UserIDFromContext(req.Context())
+		if userID == 0 {
+			writeError(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var role string
+		if err := r.db.QueryRow(`SELECT role FROM users WHERE id = ?`, userID).Scan(&role); err != nil {
+			writeError(w, "user not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]string{"role": role})
 	})))
 
 	r.mountMedia()
@@ -276,10 +286,21 @@ func (r *Router) mountAdmin() {
 	adminMux.Handle("POST /api/v1/admin/scan", a(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Manual scan started')`)
 		go func() {
-			r.scanFn()
+			r.scanner.ScanAll()
 			r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Scan complete')`)
 		}()
 		writeJSON(w, map[string]string{"status": "scan started"})
+	})))
+
+	adminMux.Handle("GET /api/v1/admin/scan/status", a(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		prog := r.scanner.Progress()
+		writeJSON(w, map[string]any{
+			"running":   prog.Running,
+			"current":   prog.Current,
+			"total":     prog.Total,
+			"library":   prog.Library,
+			"last_item": prog.LastItem,
+		})
 	})))
 
 	adminMux.Handle("GET /api/v1/admin/activity", a(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

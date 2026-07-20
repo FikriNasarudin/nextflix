@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"nextflix/internal/config"
@@ -43,11 +44,63 @@ type EncoderJob struct {
 	FilePath string
 }
 
+type ScanProgress struct {
+	mu       sync.Mutex
+	Running  bool   `json:"running"`
+	Current  int    `json:"current"`
+	Total    int    `json:"total"`
+	Library  string `json:"library"`
+	LastItem string `json:"last_item"`
+}
+
+func (p *ScanProgress) Snapshot() ScanProgress {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return ScanProgress{
+		Running:  p.Running,
+		Current:  p.Current,
+		Total:    p.Total,
+		Library:  p.Library,
+		LastItem: p.LastItem,
+	}
+}
+
+func (p *ScanProgress) setRunning(v bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Running = v
+}
+
+func (p *ScanProgress) setCurrent(n int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Current = n
+}
+
+func (p *ScanProgress) setTotal(n int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Total = n
+}
+
+func (p *ScanProgress) setLibrary(lib string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Library = lib
+}
+
+func (p *ScanProgress) setLastItem(item string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.LastItem = item
+}
+
 type Scanner struct {
 	db        *sql.DB
 	cfg       config.ScannerConfig
 	probeSem  chan struct{}
 	encoderCh chan<- EncoderJob
+	progress  *ScanProgress
 }
 
 var videoExts = map[string]bool{
@@ -66,18 +119,47 @@ func New(db *sql.DB, cfg config.ScannerConfig, encoderCh chan<- EncoderJob) *Sca
 		cfg:       cfg,
 		probeSem:  make(chan struct{}, cfg.MaxConcurrentFFprobes),
 		encoderCh: encoderCh,
+		progress:  &ScanProgress{},
 	}
 }
 
+func (s *Scanner) Progress() ScanProgress {
+	return s.progress.Snapshot()
+}
+
 func (s *Scanner) ScanAll() {
+	s.progress.setRunning(true)
+	s.progress.setCurrent(0)
+	s.progress.setTotal(0)
+	s.progress.setLibrary("")
+	s.progress.setLastItem("")
+
 	libraries := s.ensureLibraries()
 	if len(libraries) == 0 {
 		log.Println("Scanner: no library directories found under", s.cfg.MediaDir)
+		s.progress.setRunning(false)
 		return
 	}
 
+	total := 0
 	for dir, lib := range libraries {
 		fullPath := filepath.Join(s.cfg.MediaDir, dir)
+		filepath.Walk(fullPath, func(path string, fi os.FileInfo, err error) error {
+			if err != nil || fi.IsDir() {
+				return nil
+			}
+			if videoExts[strings.ToLower(filepath.Ext(path))] {
+				total++
+			}
+			return nil
+		})
+	}
+	s.progress.setTotal(total)
+
+	processed := 0
+	for dir, lib := range libraries {
+		fullPath := filepath.Join(s.cfg.MediaDir, dir)
+		s.progress.setLibrary(lib.name)
 		log.Printf("Scanner: scanning library %q (%s)", lib.name, fullPath)
 
 		filepath.Walk(fullPath, func(path string, fi os.FileInfo, err error) error {
@@ -93,11 +175,16 @@ func (s *Scanner) ScanAll() {
 				return nil
 			}
 			s.processFile(path, lib.id, lib.mediaType)
+			s.progress.setLastItem(filepath.Base(path))
+			processed++
+			s.progress.setCurrent(processed)
 			return nil
 		})
 	}
 
 	log.Println("Scanner: full scan complete")
+	s.progress.setRunning(false)
+	s.progress.setLastItem("Scan complete")
 }
 
 type libraryInfo struct {

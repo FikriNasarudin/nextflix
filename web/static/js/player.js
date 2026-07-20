@@ -270,11 +270,15 @@ function initPlayer(item) {
     trySource();
   }
 
-  qualityBtn.addEventListener('click', () => {
-    CURRENT_QUALITY = CURRENT_QUALITY === 'direct' ? 'hls' : 'direct';
-    qualityBtn.textContent = CURRENT_QUALITY;
-    playSource();
-  });
+  if (item.hls_480p_path) {
+    qualityBtn.addEventListener('click', () => {
+      CURRENT_QUALITY = CURRENT_QUALITY === 'direct' ? 'hls' : 'direct';
+      qualityBtn.textContent = CURRENT_QUALITY;
+      playSource();
+    });
+  } else {
+    qualityBtn.style.display = 'none';
+  }
 
   playSource();
 

@@ -57,11 +57,7 @@ document.getElementById('loginBtn').addEventListener('click', async () => {
       document.getElementById('navProfile').textContent = data.profiles[0].name;
     }
     if (data.role === 'admin') {
-      const a = document.createElement('button');
-      a.className = 'nav-link';
-      a.textContent = 'Admin';
-      a.addEventListener('click', () => { window.location.href = '/admin'; });
-      document.getElementById('navLinks').appendChild(a);
+      document.getElementById('btnAdmin').style.display = 'inline-block';
     }
     document.getElementById('btnLogout').style.display = 'inline-block';
     hideLogin();
@@ -425,6 +421,13 @@ function createCard(id, title, poster, progressPct, isTrending) {
     if (info.textContent) div.appendChild(info);
   }
 
+  if (item && item.hls_480p_path) {
+    const hlsBadge = document.createElement('span');
+    hlsBadge.className = 'card-badge-480p';
+    hlsBadge.textContent = '480p';
+    div.appendChild(hlsBadge);
+  }
+
   if (!isTrending) {
     const titleEl = document.createElement('div');
     titleEl.className = 'card-title';
@@ -495,6 +498,8 @@ function openDetail(item) {
   const posterUrl = item.poster_path
     ? (item.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + item.poster_path : item.poster_path)
     : '';
+
+  if (item.hls_480p_path) meta.push('480p');
 
   const isTV = item.media_type === 'tv';
 
@@ -676,6 +681,8 @@ document.getElementById('playerOverlay').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) closePlayer();
 });
 
+document.getElementById('btnAdmin').addEventListener('click', () => { window.location.href = '/admin'; });
+
 /* ===== Init ===== */
 const token = getToken();
 if (token) {
@@ -684,6 +691,7 @@ if (token) {
   document.querySelector('.bottom-nav-item[data-filter="all"]').classList.add('active');
   hideLogin();
   loadAll();
+  apiFetch('/auth/me').then(r => { if (r) r.json().then(d => { if (d.role === 'admin') document.getElementById('btnAdmin').style.display = 'inline-block'; })}).catch(() => {});
 } else {
   showLogin();
 }
