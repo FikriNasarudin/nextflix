@@ -20,7 +20,7 @@ Username: admin
 Password: admin
 ```
 
-**Change the password after first login.**
+**Change the password after first login.** The JWT secret is auto-generated and stored in the database on first run.
 
 ## Features
 

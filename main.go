@@ -1,13 +1,19 @@
 package main
 
 import (
+	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"nextflix/internal/auth"
 	"nextflix/internal/config"
 	"nextflix/internal/database"
+	"nextflix/internal/handler"
+	"strconv"
 )
 
 func main() {
@@ -37,10 +43,36 @@ func main() {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
-	log.Printf("Listening on :%d", cfg.Server.Port)
+	authMgr, err := auth.NewManager(db)
+	if err != nil {
+		log.Fatalf("Failed to init auth: %v", err)
+	}
+
+	srv := &http.Server{
+		Addr:         addr(cfg.Server.Port),
+		Handler:      handler.NewRouter(db, authMgr),
+		ReadTimeout:  time.Duration(cfg.Server.ReadTimeoutSec) * time.Second,
+		WriteTimeout: time.Duration(cfg.Server.WriteTimeoutSec) * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	go func() {
+		log.Printf("Listening on :%d", cfg.Server.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	log.Printf("Shutting down... (%v)", sig)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	srv.Shutdown(ctx)
+}
+
+func addr(port int) string {
+	return ":" + strconv.Itoa(port)
 }
