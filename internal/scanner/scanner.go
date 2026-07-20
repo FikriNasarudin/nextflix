@@ -16,13 +16,21 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+type ProbeStream struct {
+	CodecType string `json:"codec_type"`
+	CodecName string `json:"codec_name"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	Index     int    `json:"index"`
+	Channels  int    `json:"channels"`
+	Tags      struct {
+		Language string `json:"language"`
+		Title    string `json:"title"`
+	} `json:"tags"`
+}
+
 type ProbeResult struct {
-	Streams []struct {
-		CodecType string `json:"codec_type"`
-		CodecName string `json:"codec_name"`
-		Width     int    `json:"width"`
-		Height    int    `json:"height"`
-	} `json:"streams"`
+	Streams []ProbeStream `json:"streams"`
 	Format struct {
 		Duration string `json:"duration"`
 		Size     string `json:"size"`
@@ -339,6 +347,139 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 
 	if isHD {
 		s.encoderCh <- EncoderJob{MediaID: id, FilePath: path}
+	}
+
+	s.detectLocalImages(id, path, parsed.ShowName, parsed.SeasonNumber, mediaType)
+	s.detectSubtitles(id, path)
+	s.storeAudioTracks(id, result.Streams)
+}
+
+func (s *Scanner) detectLocalImages(mediaID int64, filePath, showName string, seasonNumber int, mediaType string) {
+	dir := filepath.Dir(filePath)
+	posterNames := []string{"poster.jpg", "poster.png", "folder.jpg", "folder.png", "cover.jpg", "movie.jpg"}
+	backdropNames := []string{"backdrop.jpg", "backdrop.png", "fanart.jpg", "background.jpg"}
+
+	for _, name := range posterNames {
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			s.db.Exec(`INSERT OR IGNORE INTO media_images (media_id, image_type, file_path, is_primary) VALUES (?, 'poster', ?, 1)`, mediaID, p)
+			break
+		}
+	}
+
+	for _, name := range backdropNames {
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			s.db.Exec(`INSERT OR IGNORE INTO media_images (media_id, image_type, file_path, is_primary) VALUES (?, 'backdrop', ?, 1)`, mediaID, p)
+			break
+		}
+	}
+
+	if showName != "" && mediaType == "tv" {
+		parentDir := filepath.Dir(dir)
+		if seasonNumber > 0 {
+			seasonPosters := []string{
+				fmt.Sprintf("season%02d-poster.jpg", seasonNumber),
+				fmt.Sprintf("season%d-poster.jpg", seasonNumber),
+				fmt.Sprintf("Season%02d-poster.jpg", seasonNumber),
+			}
+			for _, name := range seasonPosters {
+				p := filepath.Join(parentDir, name)
+				if _, err := os.Stat(p); err == nil {
+					s.db.Exec(`INSERT OR IGNORE INTO show_images (show_name, image_type, season_number, file_path) VALUES (?, 'season_poster', ?, ?)`, showName, seasonNumber, p)
+					break
+				}
+			}
+		}
+
+		showPosterNames := append(posterNames, "show.jpg", "tvshow.jpg")
+		for _, name := range showPosterNames {
+			p := filepath.Join(parentDir, name)
+			if _, err := os.Stat(p); err == nil {
+				s.db.Exec(`INSERT OR IGNORE INTO show_images (show_name, image_type, season_number, file_path) VALUES (?, 'poster', 0, ?)`, showName, p)
+				break
+			}
+		}
+		for _, name := range backdropNames {
+			p := filepath.Join(parentDir, name)
+			if _, err := os.Stat(p); err == nil {
+				s.db.Exec(`INSERT OR IGNORE INTO show_images (show_name, image_type, season_number, file_path) VALUES (?, 'backdrop', 0, ?)`, showName, p)
+				break
+			}
+		}
+	}
+}
+
+var subtitleExts = map[string]string{
+	".srt":  "srt",
+	".vtt":  "vtt",
+	".ass":  "ass",
+	".ssa":  "ssa",
+	".sub":  "sub",
+	".idx":  "idx",
+}
+
+func (s *Scanner) detectSubtitles(mediaID int64, filePath string) {
+	dir := filepath.Dir(filePath)
+	base := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+
+	entries, _ := os.ReadDir(dir)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		codec, ok := subtitleExts[ext]
+		if !ok {
+			continue
+		}
+
+		name := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		language := "und"
+		isForced := 0
+
+		if strings.HasPrefix(strings.ToLower(name), strings.ToLower(base)) {
+			rest := name[len(base):]
+			if strings.HasPrefix(rest, ".") {
+				rest = rest[1:]
+			}
+			parts := strings.Split(rest, ".")
+			for _, p := range parts {
+				lower := strings.ToLower(p)
+				if lower == "forced" || lower == "force" {
+					isForced = 1
+				} else if len(lower) == 2 || len(lower) == 3 {
+					language = lower
+				}
+			}
+		}
+
+		fullPath := filepath.Join(dir, entry.Name())
+		s.db.Exec(
+			`INSERT OR IGNORE INTO media_subtitles (media_id, language, codec, file_path, is_forced, is_external) VALUES (?, ?, ?, ?, ?, 1)`,
+			mediaID, language, codec, fullPath, isForced,
+		)
+	}
+}
+
+func (s *Scanner) storeAudioTracks(mediaID int64, streams []ProbeStream) {
+	for _, stream := range streams {
+		if stream.CodecType != "audio" {
+			continue
+		}
+		lang := stream.Tags.Language
+		if lang == "" {
+			lang = "und"
+		}
+		title := stream.Tags.Title
+		isDefault := 0
+		if stream.Index == 0 {
+			isDefault = 1
+		}
+		s.db.Exec(
+			`INSERT OR IGNORE INTO media_audio_tracks (media_id, language, codec, channels, stream_index, title, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			mediaID, lang, stream.CodecName, stream.Channels, stream.Index, title, isDefault,
+		)
 	}
 }
 

@@ -151,13 +151,22 @@ func (s *Sync) enrichMedia() error {
 	return nil
 }
 
-type detailResponse struct {
-	ID           int64   `json:"id"`
-	Title        string  `json:"title"`
-	Name         string  `json:"name"`
-	PosterPath   string  `json:"poster_path"`
+type collectionInfo struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	PosterPath   string `json:"poster_path"`
 	BackdropPath string `json:"backdrop_path"`
-	GenreIDs     []int64 `json:"genre_ids"`
+}
+
+type detailResponse struct {
+	ID              int64           `json:"id"`
+	Title           string          `json:"title"`
+	Name            string          `json:"name"`
+	Overview        string          `json:"overview"`
+	PosterPath      string          `json:"poster_path"`
+	BackdropPath    string          `json:"backdrop_path"`
+	GenreIDs        []int64         `json:"genre_ids"`
+	BelongsToCollection *collectionInfo `json:"belongs_to_collection"`
 	Genres       []struct {
 		ID   int64  `json:"id"`
 		Name string `json:"name"`
@@ -195,6 +204,10 @@ func (s *Sync) enrichItem(m mediaRow) {
 	if err := s.cli.Get(detailPath, &detail); err != nil {
 		log.Printf("TMDB: detail %s: %v", detailPath, err)
 		return
+	}
+
+	if detail.Overview != "" {
+		s.db.Exec(`UPDATE media_items SET overview = ? WHERE id = ?`, detail.Overview, m.ID)
 	}
 
 	if detail.PosterPath != "" || detail.BackdropPath != "" {
@@ -250,6 +263,30 @@ func (s *Sync) enrichItem(m mediaRow) {
 			if v.Site == "YouTube" && v.Type == "Trailer" && v.Official {
 				s.db.Exec(`UPDATE media_items SET trailer_youtube_id = ? WHERE id = ?`, v.Key, m.ID)
 				break
+			}
+		}
+	}
+
+	if m.MediaType == "movie" && detail.BelongsToCollection != nil {
+		coll := detail.BelongsToCollection
+		s.db.Exec(`
+			INSERT INTO collections (tmdb_collection_id, name, poster_path, backdrop_path)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(tmdb_collection_id) DO UPDATE SET
+				name = excluded.name,
+				poster_path = excluded.poster_path,
+				backdrop_path = excluded.backdrop_path
+		`, coll.ID, coll.Name, coll.PosterPath, coll.BackdropPath)
+
+		var collID int64
+		s.db.QueryRow(`SELECT id FROM collections WHERE tmdb_collection_id = ?`, coll.ID).Scan(&collID)
+		if collID > 0 {
+			var count int
+			s.db.QueryRow(`SELECT COUNT(*) FROM collection_items WHERE collection_id = ? AND media_id = ?`, collID, m.ID).Scan(&count)
+			if count == 0 {
+				var maxOrder int
+				s.db.QueryRow(`SELECT COALESCE(MAX(sort_order), -1) FROM collection_items WHERE collection_id = ?`, collID).Scan(&maxOrder)
+				s.db.Exec(`INSERT INTO collection_items (collection_id, media_id, sort_order) VALUES (?, ?, ?)`, collID, m.ID, maxOrder+1)
 			}
 		}
 	}

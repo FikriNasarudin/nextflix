@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"nextflix/internal/admin"
@@ -47,6 +48,8 @@ func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string) *Router {
 	r.mountProgress()
 	r.mountTrending()
 	r.mountRecommendations()
+	r.mountAssets()
+	r.mountCollections()
 	r.mountFrontend()
 	r.mountAdmin()
 
@@ -102,6 +105,75 @@ func (r *Router) mountRecommendations() {
 	r.mux.Handle("GET /api/v1/recommendations", r.authMid(http.HandlerFunc(rh.List)))
 }
 
+func (r *Router) mountAssets() {
+	r.mux.Handle("GET /api/v1/media/{id}/images", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		id, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
+		if err != nil { writeError(w, "invalid id", http.StatusBadRequest); return }
+		rows, err := r.db.Query(`SELECT id, image_type, file_path, is_primary FROM media_images WHERE media_id = ? ORDER BY image_type, is_primary DESC`, id)
+		if err != nil { writeError(w, "database error", http.StatusInternalServerError); return }
+		defer rows.Close()
+		type img struct { ID int64 `json:"id"`; Type string `json:"image_type"`; Path string `json:"file_path"`; Primary bool `json:"is_primary"` }
+		var list []img
+		for rows.Next() { var i img; rows.Scan(&i.ID, &i.Type, &i.Path, &i.Primary); list = append(list, i) }
+		if list == nil { list = []img{} }
+		writeJSON(w, list)
+	})))
+
+	r.mux.Handle("GET /api/v1/media/{id}/subtitles", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		id, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
+		if err != nil { writeError(w, "invalid id", http.StatusBadRequest); return }
+		rows, err := r.db.Query(`SELECT id, language, codec, file_path, is_forced, is_external FROM media_subtitles WHERE media_id = ? ORDER BY language`, id)
+		if err != nil { writeError(w, "database error", http.StatusInternalServerError); return }
+		defer rows.Close()
+		type sub struct { ID int64 `json:"id"`; Lang string `json:"language"`; Codec string `json:"codec"`; Path string `json:"file_path"`; Forced bool `json:"is_forced"`; External bool `json:"is_external"` }
+		var list []sub
+		for rows.Next() { var s sub; rows.Scan(&s.ID, &s.Lang, &s.Codec, &s.Path, &s.Forced, &s.External); list = append(list, s) }
+		if list == nil { list = []sub{} }
+		writeJSON(w, list)
+	})))
+
+	r.mux.Handle("GET /api/v1/media/{id}/audio", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		id, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
+		if err != nil { writeError(w, "invalid id", http.StatusBadRequest); return }
+		rows, err := r.db.Query(`SELECT id, language, codec, channels, stream_index, title, is_default FROM media_audio_tracks WHERE media_id = ? ORDER BY stream_index`, id)
+		if err != nil { writeError(w, "database error", http.StatusInternalServerError); return }
+		defer rows.Close()
+		type aud struct { ID int64 `json:"id"`; Lang string `json:"language"`; Codec string `json:"codec"`; Channels int `json:"channels"`; StreamIdx int `json:"stream_index"`; Title string `json:"title"`; Default bool `json:"is_default"` }
+		var list []aud
+		for rows.Next() { var a aud; rows.Scan(&a.ID, &a.Lang, &a.Codec, &a.Channels, &a.StreamIdx, &a.Title, &a.Default); list = append(list, a) }
+		if list == nil { list = []aud{} }
+		writeJSON(w, list)
+	})))
+
+	r.mux.Handle("GET /api/v1/image/local/{imageType}/{id}", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		imgType := req.PathValue("imageType")
+		id, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
+		if err != nil { writeError(w, "invalid id", http.StatusBadRequest); return }
+		var path string
+		err = r.db.QueryRow(`SELECT file_path FROM media_images WHERE media_id = ? AND image_type = ? ORDER BY is_primary DESC LIMIT 1`, id, imgType).Scan(&path)
+		if err != nil { writeError(w, "not found", http.StatusNotFound); return }
+		http.ServeFile(w, req, path)
+	})))
+
+	r.mux.Handle("GET /api/v1/subtitle/{id}/file", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		id, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
+		if err != nil { writeError(w, "invalid id", http.StatusBadRequest); return }
+		var path, codec string
+		err = r.db.QueryRow(`SELECT file_path, codec FROM media_subtitles WHERE id = ?`, id).Scan(&path, &codec)
+		if err != nil { writeError(w, "not found", http.StatusNotFound); return }
+		mime := map[string]string{"srt": "text/plain", "vtt": "text/vtt", "ass": "text/plain", "ssa": "text/plain", "sub": "text/plain", "idx": "text/plain"}
+		if ct, ok := mime[codec]; ok { w.Header().Set("Content-Type", ct) }
+		http.ServeFile(w, req, path)
+	})))
+}
+
+func (r *Router) mountCollections() {
+	ch := NewCollectionHandler(r.db)
+	r.mux.Handle("GET /api/v1/collections", r.authMid(http.HandlerFunc(ch.List)))
+	r.mux.Handle("GET /api/v1/collections/{id}", r.authMid(http.HandlerFunc(ch.Get)))
+	r.mux.Handle("GET /api/v1/collections/{id}/items", r.authMid(http.HandlerFunc(ch.Items)))
+}
+
 func (r *Router) mountFrontend() {
 	r.mux.Handle("/static/", http.FileServer(http.FS(web.FS)))
 
@@ -135,6 +207,7 @@ func (r *Router) mountAdmin() {
 	th := admin.NewTagHandler(r.db)
 	mh := admin.NewMediaHandler(r.db)
 	sh := admin.NewSettingsHandler(r.db)
+	ch := admin.NewCollectionHandler(r.db)
 
 	a := func(h http.HandlerFunc) http.Handler {
 		return r.adminMid(r.authMid(h))
@@ -175,6 +248,12 @@ func (r *Router) mountAdmin() {
 
 	adminMux.Handle("GET /api/v1/admin/settings", a(sh.List))
 	adminMux.Handle("PUT /api/v1/admin/settings", a(sh.Update))
+
+	adminMux.Handle("GET /api/v1/admin/collections", a(ch.List))
+	adminMux.Handle("POST /api/v1/admin/collections", a(ch.Create))
+	adminMux.Handle("PUT /api/v1/admin/collections/{id}", a(ch.Update))
+	adminMux.Handle("DELETE /api/v1/admin/collections/{id}", a(ch.Delete))
+	adminMux.Handle("PUT /api/v1/admin/collections/{id}/items", a(ch.SetItems))
 
 	r.mux.Handle("/api/v1/admin/", r.authMid(r.adminMid(adminMux)))
 }

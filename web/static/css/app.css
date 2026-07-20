@@ -45,6 +45,9 @@ main { padding-top:0; }
 .card { position:relative; flex-shrink:0; width:180px; cursor:pointer; transition:transform .2s; }
 .card:hover { transform:scale(1.05); z-index:10; }
 .card-poster { width:100%; aspect-ratio:2/3; border-radius:4px; background:var(--surface); object-fit:cover; }
+.collection-card { cursor: pointer; position: relative; min-width: 200px; }
+.collection-card .card-title { text-align: center; margin-top: 4px; font-size: .85rem; }
+
 .card-rating { position:absolute; top:6px; left:6px; padding:2px 6px; border-radius:3px; background:rgba(0,0,0,.7); color:#ffd54f; font-size:.7rem; font-weight:600; z-index:5; }
 .card-title { font-size:.8rem; margin-top:6px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .card-progress { position:absolute; bottom:0; left:0; right:0; height:4px; background:#333; border-radius:0 0 4px 4px; overflow:hidden; }
@@ -59,6 +62,18 @@ main { padding-top:0; }
 .player-wrapper { width:100%; max-width:1200px; margin:0 auto; padding:20px; }
 .player-video { width:100%; max-height:80vh; border-radius:8px; }
 .player-controls { display:flex; align-items:center; gap:16px; margin-top:12px; }
+.track-select {
+  background: var(--surface, #1a1a1a);
+  color: var(--text, #e0e0e0);
+  border: 1px solid var(--border, #333);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: .8rem;
+  cursor: pointer;
+}
+
+.track-select:focus { outline: none; border-color: var(--primary, #e50914); }
+
 .quality-btn { padding:8px 16px; border:1px solid var(--muted); border-radius:4px; background:transparent; color:var(--text); cursor:pointer; font-size:.85rem; }
 .quality-btn:hover { border-color:var(--text); }
 .player-title { font-size:1.1rem; font-weight:600; }

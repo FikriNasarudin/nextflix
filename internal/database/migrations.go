@@ -71,6 +71,7 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 			episode_number INTEGER DEFAULT 0,
 			episode_title TEXT DEFAULT '',
 			year TEXT DEFAULT '',
+			overview TEXT DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
 
@@ -131,6 +132,63 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		);`,
+
+		`CREATE TABLE IF NOT EXISTS media_images (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			media_id INTEGER REFERENCES media_items(id) ON DELETE CASCADE,
+			image_type TEXT NOT NULL,
+			file_path TEXT NOT NULL,
+			is_primary INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS show_images (
+			show_name TEXT NOT NULL,
+			image_type TEXT NOT NULL,
+			season_number INTEGER NOT NULL DEFAULT 0,
+			file_path TEXT NOT NULL,
+			PRIMARY KEY (show_name, image_type, season_number)
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS media_subtitles (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			media_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+			language TEXT NOT NULL DEFAULT 'und',
+			codec TEXT NOT NULL DEFAULT 'srt',
+			file_path TEXT NOT NULL,
+			is_forced INTEGER NOT NULL DEFAULT 0,
+			is_external INTEGER NOT NULL DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS media_audio_tracks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			media_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+			language TEXT NOT NULL DEFAULT 'und',
+			codec TEXT NOT NULL,
+			channels INTEGER NOT NULL DEFAULT 2,
+			stream_index INTEGER NOT NULL,
+			title TEXT DEFAULT '',
+			is_default INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS collections (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tmdb_collection_id INTEGER UNIQUE,
+			name TEXT NOT NULL,
+			poster_path TEXT DEFAULT '',
+			backdrop_path TEXT DEFAULT '',
+			overview TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS collection_items (
+			collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+			media_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+			sort_order INTEGER DEFAULT 0,
+			PRIMARY KEY (collection_id, media_id)
+		);`,
 	}
 
 	for _, stmt := range schema {
@@ -156,6 +214,62 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 	db.Exec(`ALTER TABLE media_items ADD COLUMN episode_number INTEGER DEFAULT 0`)
 	db.Exec(`ALTER TABLE media_items ADD COLUMN episode_title TEXT DEFAULT ''`)
 	db.Exec(`ALTER TABLE media_items ADD COLUMN year TEXT DEFAULT ''`)
+
+	// add overview column to media_items (may already exist in fresh installs)
+	db.Exec(`ALTER TABLE media_items ADD COLUMN overview TEXT DEFAULT ''`)
+
+	// v4: create image/subtitle/audio/collection tables (IF NOT EXISTS handles fresh installs)
+	db.Exec(`CREATE TABLE IF NOT EXISTS media_images (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		media_id INTEGER REFERENCES media_items(id) ON DELETE CASCADE,
+		image_type TEXT NOT NULL,
+		file_path TEXT NOT NULL,
+		is_primary INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	db.Exec(`CREATE TABLE IF NOT EXISTS show_images (
+		show_name TEXT NOT NULL,
+		image_type TEXT NOT NULL,
+		season_number INTEGER NOT NULL DEFAULT 0,
+		file_path TEXT NOT NULL,
+		PRIMARY KEY (show_name, image_type, season_number)
+	)`)
+	db.Exec(`CREATE TABLE IF NOT EXISTS media_subtitles (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		media_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+		language TEXT NOT NULL DEFAULT 'und',
+		codec TEXT NOT NULL DEFAULT 'srt',
+		file_path TEXT NOT NULL,
+		is_forced INTEGER NOT NULL DEFAULT 0,
+		is_external INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	db.Exec(`CREATE TABLE IF NOT EXISTS media_audio_tracks (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		media_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+		language TEXT NOT NULL DEFAULT 'und',
+		codec TEXT NOT NULL,
+		channels INTEGER NOT NULL DEFAULT 2,
+		stream_index INTEGER NOT NULL,
+		title TEXT DEFAULT '',
+		is_default INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	db.Exec(`CREATE TABLE IF NOT EXISTS collections (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tmdb_collection_id INTEGER UNIQUE,
+		name TEXT NOT NULL,
+		poster_path TEXT DEFAULT '',
+		backdrop_path TEXT DEFAULT '',
+		overview TEXT DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	db.Exec(`CREATE TABLE IF NOT EXISTS collection_items (
+		collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+		media_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+		sort_order INTEGER DEFAULT 0,
+		PRIMARY KEY (collection_id, media_id)
+	)`)
 
 	log.Println("Database migrations complete")
 	return nil

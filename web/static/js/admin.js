@@ -51,6 +51,7 @@ async function loadSection(section) {
     case 'libraries': renderLibraries(el); break;
     case 'tags': renderTags(el); break;
     case 'media': renderMedia(el); break;
+    case 'collections': renderCollections(el); break;
     case 'settings': renderSettings(el); break;
     default: el.innerHTML = '<h1>Not found</h1>';
   }
@@ -393,6 +394,84 @@ window.editMedia = async (id) => {
     toast('Media updated', 'success');
     renderMedia(document.getElementById('adminContent'));
   });
+};
+
+async function renderCollections(el) {
+  const colls = await fetch('/api/v1/collections').then(r => r.json()) || [];
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h1>Collections</h1>
+      <button class="btn btn-primary" id="addCollBtn">+ Add Collection</button>
+    </div>
+    <table class="admin-table"><thead><tr><th>ID</th><th>Name</th><th>TMDB ID</th><th>Items</th><th>Actions</th></tr></thead><tbody>
+      ${colls.map(c => `<tr>
+        <td>${c.id}</td>
+        <td>${c.name}</td>
+        <td>${c.tmdb_collection_id || '—'}</td>
+        <td>${c.item_count || 0}</td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="editColl(${c.id})">Edit</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteColl(${c.id})">Del</button>
+        </td>
+      </tr>`).join('')}
+    </tbody></table>`;
+
+  document.getElementById('addCollBtn').onclick = () => {
+    modal('Add Collection', `
+      <div class="form-row"><label>Name</label><input name="name" placeholder="Collection name"></div>
+      <div class="form-row"><label>TMDB Collection ID</label><input name="tmdb_collection_id" placeholder="Optional"></div>
+      <div class="form-row"><label>Poster Path</label><input name="poster_path" placeholder="Optional"></div>
+      <div class="form-row"><label>Backdrop Path</label><input name="backdrop_path" placeholder="Optional"></div>
+    `, async () => {
+      const d = formData(document.querySelector('.modal-body'));
+      if (!d.name) { toast('Name required', 'error'); return; }
+      await api('/collections', { method: 'POST', body: JSON.stringify(d) });
+      toast('Collection created', 'success');
+      renderCollections(el);
+    });
+  };
+}
+
+window.editColl = async (id) => {
+  const [colls, media] = await Promise.all([
+    fetch('/api/v1/collections').then(r => r.json()),
+    api('/media'),
+  ]);
+  const c = colls.find(x => x.id === id);
+  if (!c) return;
+  const itemsRes = await fetch('/api/v1/collections/' + id + '/items');
+  const curItems = itemsRes.ok ? await itemsRes.json() : [];
+  const curIds = curItems.map(i => i.id);
+
+  modal('Edit Collection: ' + c.name, `
+    <div class="form-row"><label>Name</label><input name="name" value="${c.name}"></div>
+    <div class="form-row"><label>TMDB Collection ID</label><input name="tmdb_collection_id" value="${c.tmdb_collection_id||''}"></div>
+    <div class="form-row"><label>Poster Path</label><input name="poster_path" value="${c.poster_path||''}"></div>
+    <div class="form-row"><label>Backdrop Path</label><input name="backdrop_path" value="${c.backdrop_path||''}"></div>
+    <div class="form-row"><label>Items</label><div style="display:flex;flex-wrap:wrap;gap:4px;max-height:200px;overflow-y:auto">
+      ${(media||[]).map(m => `<span class="access-chip ${curIds.includes(m.id)?'selected':''}" data-media-id="${m.id}" onclick="this.classList.toggle('selected')">${m.title}</span>`).join('')}
+    </div></div>
+  `, async () => {
+    const f = document.querySelector('.modal-body');
+    const name = f.querySelector('[name="name"]').value;
+    const tmdb = f.querySelector('[name="tmdb_collection_id"]').value;
+    const poster = f.querySelector('[name="poster_path"]').value;
+    const backdrop = f.querySelector('[name="backdrop_path"]').value;
+    const itemIds = [...f.querySelectorAll('.access-chip.selected')].map(el => parseInt(el.dataset.mediaId));
+
+    const tmdbNum = tmdb ? parseInt(tmdb, 10) : null;
+    await api('/collections/' + id, { method: 'PUT', body: JSON.stringify({ name, tmdb_collection_id: tmdbNum, poster_path: poster || null, backdrop_path: backdrop || null }) });
+    await api('/collections/' + id + '/items', { method: 'PUT', body: JSON.stringify({ media_ids: itemIds }) });
+    toast('Collection updated', 'success');
+    renderCollections(document.getElementById('adminContent'));
+  });
+};
+
+window.deleteColl = async (id) => {
+  if (!confirm('Delete collection?')) return;
+  await api('/collections/' + id, { method: 'DELETE' });
+  toast('Collection deleted', 'success');
+  renderCollections(document.getElementById('adminContent'));
 };
 
 async function renderSettings(el) {

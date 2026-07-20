@@ -57,11 +57,12 @@ let selectedMediaId = null;
 let activeFilter = null;
 
 async function loadAll() {
-  const [mediaRes, progressRes, trendingRes, libRes] = await Promise.all([
+  const [mediaRes, progressRes, trendingRes, libRes, collRes] = await Promise.all([
     apiFetch('/media'),
     apiFetch('/progress'),
     apiFetch('/trending'),
     apiFetch('/libraries'),
+    apiFetch('/collections'),
   ]);
   if (!mediaRes) return;
   const media = await mediaRes.json();
@@ -69,12 +70,51 @@ async function loadAll() {
   const progress = progressRes ? await progressRes.json() : [];
   const trending = trendingRes ? await trendingRes.json() : [];
   const libraries = libRes ? await libRes.json() : [];
+  const collections = collRes ? await collRes.json() : [];
 
   renderHero(media);
   renderContinueWatching(progress);
+  renderCollections(collections);
   renderFilters(libraries);
   renderGrid(media);
   renderTrending(trending);
+}
+
+function renderCollections(collections) {
+  const section = document.getElementById('collectionsRow');
+  const container = document.getElementById('collectionsContainer');
+  if (!collections || !collections.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  container.innerHTML = '';
+  collections.forEach(c => {
+    const div = document.createElement('div');
+    div.className = 'card collection-card';
+    const img = document.createElement('img');
+    img.className = 'card-poster';
+    img.loading = 'lazy';
+    img.alt = c.name;
+    if (c.poster_path) {
+      img.src = c.poster_path.startsWith('/') ? 'https://image.tmdb.org/t/p/w342' + c.poster_path : c.poster_path;
+    } else {
+      img.style.background = '#333';
+    }
+    div.appendChild(img);
+    const title = document.createElement('div');
+    title.className = 'card-title';
+    title.textContent = c.name;
+    div.appendChild(title);
+    div.addEventListener('click', () => {
+      showCollection(c);
+    });
+    container.appendChild(div);
+  });
+}
+
+async function showCollection(coll) {
+  const res = await apiFetch('/collections/' + coll.id + '/items');
+  const items = res ? await res.json() : [];
+  document.getElementById('collectionsRow').scrollIntoView({ behavior: 'smooth' });
+  renderGrid(items);
 }
 
 function renderFilters(libraries) {
@@ -192,6 +232,12 @@ function createCard(id, title, poster, progressPct, isTrending) {
   } else {
     img.style.background = '#333';
   }
+  img.onerror = function() {
+    if (!this.dataset.fallback) {
+      this.dataset.fallback = '1';
+      this.src = API + '/image/local/poster/' + id;
+    }
+  };
   div.appendChild(img);
 
   if (item && item.rating) {
