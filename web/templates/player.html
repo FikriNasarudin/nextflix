@@ -1,7 +1,26 @@
 {{define "content"}}
-<div class="player-wrapper">
+<div class="player-wrapper" id="playerWrapper">
   <div class="player-video-container" id="playerContainer">
     <video id="video" class="player-video" autoplay playsinline></video>
+
+    <div class="player-top-overlay" id="playerTopOverlay">
+      <a href="/" class="player-back">← Back to Browse</a>
+      <div class="player-top-right">
+        <span class="player-title" id="playerTitle"></span>
+        <button id="episodesBtn" class="quality-btn" style="display:none">Episodes</button>
+        <button id="pcSettingsBtn" class="pc-btn pc-settings-btn" aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14 12.94a7.07 7.07 0 0 0 .06-.94c0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="player-info-overlay" id="playerInfoOverlay">
+      <h1 class="player-info-title" id="playerInfoTitle"></h1>
+      <div class="player-info-meta" id="playerInfoMeta"></div>
+      <p class="player-info-desc" id="playerInfoDesc"></p>
+    </div>
+
+    <button class="skip-intro-btn" id="skipIntroBtn">Skip Intro</button>
 
     <div class="pc-center-play" id="pcCenterPlay">
       <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><polygon points="6,3 20,12 6,21"/></svg>
@@ -36,27 +55,26 @@
       <div class="pc-row">
         <div class="pc-left">
           <button id="pcPlay" class="pc-btn" aria-label="Play/Pause">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path id="pcPlayIcon" d="M7 4l13 8-13 8V4z"/></svg>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path id="pcPlayIcon" d="M7 4l13 8-13 8V4z"/></svg>
           </button>
           <button id="pcRewind" class="pc-btn pc-skip-btn" aria-label="Rewind 10s">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="12" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="currentColor">10</text></svg>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="12" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="currentColor">10</text></svg>
           </button>
           <button id="pcForward" class="pc-btn pc-skip-btn" aria-label="Forward 10s">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/><text x="12" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="currentColor">10</text></svg>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/><text x="12" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="currentColor">10</text></svg>
           </button>
           <span class="pc-time" id="pcTime">0:00 / 0:00</span>
         </div>
         <div class="pc-right">
-          <button id="pcNextEp" class="pc-btn" style="display:none" aria-label="Next episode">⏭</button>
-          <button id="pcPip" class="pc-btn pc-pip-btn" aria-label="Picture in Picture">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/></svg>
-          </button>
           <div class="pc-volume-group">
             <button id="pcVolBtn" class="pc-btn" aria-label="Volume">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" id="pcVolIcon"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.49 4.49 0 0 0 2.5-3.5zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" id="pcVolIcon"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.49 4.49 0 0 0 2.5-3.5zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
             </button>
             <input type="range" class="pc-volume-slider" id="pcVolume" min="0" max="1" step="0.05" value="1">
           </div>
+          <button id="pcNextEp" class="pc-btn pc-next-btn" style="display:none" aria-label="Next episode">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+          </button>
           <select id="pcSpeed" class="pc-speed">
             <option value="0.5">0.5x</option>
             <option value="1" selected>1x</option>
@@ -64,24 +82,16 @@
             <option value="1.5">1.5x</option>
             <option value="2">2x</option>
           </select>
+          <button id="pcPip" class="pc-btn pc-pip-btn" aria-label="Picture in Picture">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/></svg>
+          </button>
           <button id="pcFs" class="pc-btn" aria-label="Fullscreen">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" id="pcFsIcon"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" id="pcFsIcon"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
           </button>
         </div>
       </div>
     </div>
   </div>
-
-  <div class="player-top-bar" id="playerTopBar">
-    <a href="/" class="player-back">← Back to Browse</a>
-    <span class="player-title" id="playerTitle"></span>
-    <button id="episodesBtn" class="quality-btn" style="display:none">Episodes</button>
-    <button id="pcSettingsBtn" class="pc-btn pc-settings-btn" aria-label="Settings">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19.14 12.94a7.07 7.07 0 0 0 .06-.94c0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
-    </button>
-  </div>
-
-  <div class="player-meta" id="playerMeta"></div>
 </div>
 
 <div id="settingsOverlay" class="settings-overlay" style="display:none">

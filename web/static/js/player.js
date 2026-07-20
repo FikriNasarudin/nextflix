@@ -32,16 +32,19 @@ async function loadMedia(id) {
   ).sort((a, b) => a.season_number - b.season_number || a.episode_number - b.episode_number);
 
   document.getElementById('playerTitle').textContent = item.title;
-  const meta = document.getElementById('playerMeta');
+  document.getElementById('playerInfoTitle').textContent = item.title;
+  const metaEl = document.getElementById('playerInfoMeta');
   const parts = [];
-  if (item.media_type) parts.push(item.media_type.toUpperCase());
+  if (item.year) parts.push(item.year);
   if (item.rating) parts.push(item.rating);
+  if (item.media_type) parts.push(item.media_type.toUpperCase());
   if (item.duration_seconds) {
     const h = Math.floor(item.duration_seconds / 3600);
     const m = Math.floor((item.duration_seconds % 3600) / 60);
     parts.push(h + 'h ' + m + 'm');
   }
-  meta.innerHTML = '<h2>' + item.title + '</h2><div class="meta-line">' + parts.join(' · ') + '</div><p>' + (item.overview || '') + '</p>';
+  metaEl.textContent = parts.join(' · ');
+  document.getElementById('playerInfoDesc').textContent = item.overview || '';
   await loadTracks(id);
   initPlayer(item);
 }
@@ -119,8 +122,18 @@ function switchEpisode(ep) {
   VIDEO_ID = ep.id;
   DURATION = ep.duration_seconds;
   document.getElementById('playerTitle').textContent = ep.title;
-  document.getElementById('playerMeta').querySelector('h2').textContent = ep.title;
-  document.getElementById('playerMeta').querySelector('p').textContent = ep.overview || '';
+  document.getElementById('playerInfoTitle').textContent = ep.title;
+  const metaEl = document.getElementById('playerInfoMeta');
+  const parts = [];
+  if (ep.year) parts.push(ep.year);
+  if (ep.rating) parts.push(ep.rating);
+  if (ep.duration_seconds) {
+    const h = Math.floor(ep.duration_seconds / 3600);
+    const m = Math.floor((ep.duration_seconds % 3600) / 60);
+    parts.push(h + 'h ' + m + 'm');
+  }
+  metaEl.textContent = parts.join(' · ');
+  document.getElementById('playerInfoDesc').textContent = ep.overview || '';
   const drawer = document.getElementById('episodeDrawer');
   if (drawer) drawer.style.display = 'none';
 
@@ -329,6 +342,7 @@ function initPlayer(item) {
   try { setupSettingsDrawer(); } catch (e) { console.warn('settings:', e); }
   try { setupDoubleTapSeek(video); } catch (e) { console.warn('doubleTap:', e); }
   try { setupAutoFullscreen(video); } catch (e) { console.warn('autoFS:', e); }
+  try { setupSkipIntro(video, item); } catch (e) { console.warn('skipIntro:', e); }
   loadThumbnails(item.id);
 
   // Show next episode button in controls for TV
@@ -377,12 +391,16 @@ function formatTime(s) {
 
 function showControls() {
   document.getElementById('controlBar').classList.remove('pc-hidden');
+  document.getElementById('playerTopOverlay').classList.add('visible');
+  document.getElementById('playerInfoOverlay').classList.add('visible');
 }
 
 function hideControls() {
   const video = document.getElementById('video');
   if (video.paused) return;
   document.getElementById('controlBar').classList.add('pc-hidden');
+  document.getElementById('playerTopOverlay').classList.remove('visible');
+  document.getElementById('playerInfoOverlay').classList.remove('visible');
 }
 
 function setupCenterPlay(video) {
@@ -636,6 +654,14 @@ function setupKeyboardShortcuts(video) {
         e.preventDefault();
         video.muted = !video.muted;
         break;
+      case 'KeyS': {
+        e.preventDefault();
+        const skipBtn = document.getElementById('skipIntroBtn');
+        if (skipBtn && skipBtn.classList.contains('visible')) {
+          skipBtn.click();
+        }
+        break;
+      }
       case 'ArrowLeft':
         e.preventDefault();
         video.currentTime = Math.max(0, video.currentTime - 10);
@@ -771,6 +797,35 @@ function setupAutoFullscreen(video) {
       if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
     }
   });
+}
+
+function setupSkipIntro(video, item) {
+  const btn = document.getElementById('skipIntroBtn');
+  if (!btn) return;
+  const isTV = item.media_type === 'tv' && item.show_name && showEpisodes.length > 0;
+  if (!isTV) return;
+
+  const introEnd = 85;
+  let introActive = false;
+
+  function update() {
+    const ct = video.currentTime;
+    if (ct > 10 && ct < introEnd && !introActive) {
+      introActive = true;
+      btn.classList.add('visible');
+    } else if (ct >= introEnd && introActive) {
+      introActive = false;
+      btn.classList.remove('visible');
+    }
+  }
+
+  btn.addEventListener('click', () => {
+    video.currentTime = introEnd;
+    btn.classList.remove('visible');
+    introActive = false;
+  });
+
+  video.addEventListener('timeupdate', update);
 }
 
 async function loadThumbnails(mediaId) {
