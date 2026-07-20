@@ -479,18 +479,28 @@ function playMedia(item) {
   const video = document.getElementById('overlayVideo');
   const title = document.getElementById('playerOverlayTitle');
   title.textContent = item.title;
-  video.src = API + '/stream/' + item.id;
   overlay.style.display = 'flex';
-  video.play();
 
-  video.onerror = () => {
-    video.src = API + '/hls/' + item.id + '/480p.m3u8';
-    video.play();
-  };
+  let retries = 0;
+  const sources = [
+    () => API + '/stream/' + item.id,
+    () => API + '/remux/' + item.id,
+    () => API + '/hls/' + item.id + '/480p.m3u8',
+  ];
 
-  video.onended = () => {
-    closePlayer();
-  };
+  function trySource() {
+    if (retries >= sources.length) {
+      console.warn('playMedia: all sources failed for', item.id);
+      return;
+    }
+    video.src = sources[retries]();
+    retries++;
+    video.play().catch(() => {});
+  }
+
+  video.onerror = trySource;
+  video.onended = closePlayer;
+  trySource();
 }
 
 document.getElementById('playerOverlayClose').onclick = closePlayer;

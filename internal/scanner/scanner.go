@@ -295,9 +295,10 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 	s.probeSem <- struct{}{}
 	defer func() { <-s.probeSem }()
 
-	var count int
-	s.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE file_path = ?`, path).Scan(&count)
-	if count > 0 {
+	var existingID int64
+	var existingDur int
+	s.db.QueryRow(`SELECT id, duration_seconds FROM media_items WHERE file_path = ?`, path).Scan(&existingID, &existingDur)
+	if existingID > 0 && existingDur > 0 {
 		return
 	}
 
@@ -308,11 +309,13 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 	}
 
 	var duration int
-	var durationFloat float64
-	if _, err := fmt.Sscanf(result.Format.Duration, "%f", &durationFloat); err == nil {
-		duration = int(durationFloat)
-	} else {
-		log.Printf("Scanner: parse duration %s: %v", result.Format.Duration, err)
+	if result.Format.Duration != "" && result.Format.Duration != "N/A" {
+		if d, err := strconv.ParseFloat(result.Format.Duration, 64); err == nil {
+			duration = int(d)
+		}
+	}
+	if duration == 0 {
+		duration = probeFallbackDuration(path)
 	}
 
 	parsed := ParseMedia(path, mediaType, s.cfg.MediaDir)
@@ -339,6 +342,12 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 	}
 
 	tmdbID := parsed.TmdbID
+
+	if existingID > 0 {
+		s.db.Exec(`UPDATE media_items SET duration_seconds = ? WHERE file_path = ?`, duration, path)
+		log.Printf("Scanner: updated duration for %s (path=%s, duration=%ds)", parsed.Title, path, duration)
+		return
+	}
 
 	for _, ep := range episodes {
 		title := ep.Title
@@ -601,12 +610,37 @@ func (s *Scanner) storeAudioTracks(mediaID int64, streams []ProbeStream) {
 	}
 }
 
+func probeFallbackDuration(path string) int {
+	cmd := exec.Command("ffprobe",
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		"-analyzeduration", "100M",
+		"-probesize", "50M",
+		path,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	s := strings.TrimSpace(string(out))
+	if s == "" || s == "N/A" {
+		return 0
+	}
+	if d, err := strconv.ParseFloat(s, 64); err == nil && d > 0 {
+		return int(d)
+	}
+	return 0
+}
+
 func probeFile(path string) (*ProbeResult, error) {
 	cmd := exec.Command("ffprobe",
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_format",
 		"-show_streams",
+		"-analyzeduration", "100M",
+		"-probesize", "50M",
 		path,
 	)
 

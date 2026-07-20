@@ -107,15 +107,6 @@ function initPlayer(item) {
     }
   }
 
-  function fallbackToDirect() {
-    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-    CURRENT_QUALITY = 'direct';
-    qualityBtn.textContent = 'direct';
-    video.src = API + '/stream/' + item.id;
-    populateTracks();
-    video.play();
-  }
-
   function playHLS() {
     if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
     const url = API + '/hls/' + item.id + '/480p.m3u8';
@@ -151,24 +142,37 @@ function initPlayer(item) {
       });
       hlsInstance.on(Hls.Events.ERROR, (event, data) => {
         if (data.fatal) {
-          console.warn('HLS fatal error, falling back to direct stream');
-          fallbackToDirect();
+          console.warn('HLS fatal error, falling back to remux');
+          CURRENT_QUALITY = 'direct';
+          qualityBtn.textContent = 'direct';
+          video.src = API + '/remux/' + item.id;
+          video.play();
         }
       });
-    } else {
-      fallbackToDirect();
     }
   }
 
   function playSource() {
     if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-    if (CURRENT_QUALITY === 'hls') {
-      playHLS();
-    } else {
-      video.src = API + '/stream/' + item.id;
+
+    let retries = 0;
+    const sources = CURRENT_QUALITY === 'hls'
+      ? [() => API + '/hls/' + item.id + '/480p.m3u8', () => API + '/remux/' + item.id]
+      : [() => API + '/stream/' + item.id, () => API + '/remux/' + item.id, () => API + '/hls/' + item.id + '/480p.m3u8'];
+
+    function trySource() {
+      if (retries >= sources.length) {
+        console.warn('playSource: all sources failed for', item.id);
+        return;
+      }
+      video.src = sources[retries]();
+      retries++;
       populateTracks();
-      video.play();
+      video.play().catch(() => {});
     }
+
+    video.onerror = trySource;
+    trySource();
   }
 
   qualityBtn.addEventListener('click', () => {
