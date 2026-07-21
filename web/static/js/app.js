@@ -104,7 +104,7 @@ async function loadAll() {
   ]);
   if (!mediaMovies && !mediaTV) return;
   allMedia = [...(mediaMovies?.items || []), ...(mediaTV?.items || [])];
-  window._nextflixMedia = media.items || [];
+  window._nextflixMedia = allMedia;
   allLibraries = libraries || [];
   allCollections = collections || [];
 
