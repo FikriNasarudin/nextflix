@@ -59,6 +59,23 @@ type tmdbVideos struct {
 	} `json:"results"`
 }
 
+type tmdbCredits struct {
+	Cast []struct {
+		ID          int64  `json:"id"`
+		Name        string `json:"name"`
+		Character   string `json:"character"`
+		ProfilePath string `json:"profile_path"`
+		Order       int    `json:"order"`
+	} `json:"cast"`
+	Crew []struct {
+		ID          int64  `json:"id"`
+		Name        string `json:"name"`
+		Job         string `json:"job"`
+		Department  string `json:"known_for_department"`
+		ProfilePath string `json:"profile_path"`
+	} `json:"crew"`
+}
+
 func NewTMDBProvider(db *sql.DB, apiKey string, imageCache *ImageCacheManager) *TMDBProvider {
 	return &TMDBProvider{
 		db:         db,
@@ -148,6 +165,10 @@ func (p *TMDBProvider) Fetch(ctx context.Context, item *model.MediaItem) (*Metad
 		}
 	}
 
+	if err := p.fetchAndStoreCredits(ctx, tmdbID, mediaType, item.ID); err != nil {
+		log.Printf("tmdb: fetch credits for %q: %v", item.Title, err)
+	}
+
 	result := &MetadataResult{
 		Title:        title,
 		Overview:     detail.Overview,
@@ -219,6 +240,41 @@ func (p *TMDBProvider) fetchDetail(ctx context.Context, tmdbID int64, mediaType 
 		return nil, err
 	}
 	return &detail, nil
+}
+
+func (p *TMDBProvider) fetchAndStoreCredits(ctx context.Context, tmdbID int64, mediaType string, itemID int64) error {
+	path := fmt.Sprintf("/%s/%d/credits", tmdbMediaTypePath(mediaType), tmdbID)
+	var credits tmdbCredits
+	if err := p.get(ctx, path, &credits); err != nil {
+		return fmt.Errorf("fetch credits: %w", err)
+	}
+
+	tx, err := p.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	tx.Exec(`DELETE FROM media_credits WHERE media_id = ?`, itemID)
+
+	for i, c := range credits.Cast {
+		role := "actor"
+		character := c.Character
+		tx.Exec(`INSERT OR IGNORE INTO media_credits (media_id, tmdb_person_id, name, role, character_name, profile_path, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			itemID, c.ID, c.Name, role, character, c.ProfilePath, i)
+	}
+
+	for _, c := range credits.Crew {
+		role := c.Department
+		if role == "" {
+			role = "crew"
+		}
+		character := c.Job
+		tx.Exec(`INSERT OR IGNORE INTO media_credits (media_id, tmdb_person_id, name, role, character_name, profile_path, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			itemID, c.ID, c.Name, role, character, c.ProfilePath, 999)
+	}
+
+	return tx.Commit()
 }
 
 func (p *TMDBProvider) get(ctx context.Context, path string, target interface{}) error {

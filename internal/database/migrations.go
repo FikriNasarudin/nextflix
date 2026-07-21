@@ -238,6 +238,20 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 		db.Exec(`INSERT INTO activity_log (type, message) VALUES ('system', 'Server initialized')`)
 	}
 
+	// v8: media_credits table for cast & crew
+	db.Exec(`CREATE TABLE IF NOT EXISTS media_credits (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		media_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+		tmdb_person_id INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		role TEXT NOT NULL DEFAULT 'actor',
+		character_name TEXT DEFAULT '',
+		profile_path TEXT DEFAULT '',
+		sort_order INTEGER DEFAULT 0,
+		UNIQUE(media_id, tmdb_person_id, role, character_name)
+	)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_credits_media ON media_credits(media_id, sort_order)`)
+
 	// v4: create image/subtitle/audio/collection tables (IF NOT EXISTS handles fresh installs)
 	db.Exec(`CREATE TABLE IF NOT EXISTS media_images (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,

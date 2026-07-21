@@ -1,0 +1,110 @@
+.section {
+  margin-top: 36px;
+  margin-bottom: 12px;
+}
+
+.section h3 {
+  margin-bottom: 20px;
+}
+
+.subsection {
+  margin-bottom: 24px;
+}
+
+.subtitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 14px;
+}
+
+.row {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--outline-variant) transparent;
+}
+
+.row::-webkit-scrollbar {
+  height: 4px;
+}
+
+.row::-webkit-scrollbar-thumb {
+  background: var(--outline-variant);
+  border-radius: 2px;
+}
+
+.person {
+  flex-shrink: 0;
+  width: 110px;
+  text-align: center;
+}
+
+.avatarWrap {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 8px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--surface-container);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+}
+
+.avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.avatarPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-container);
+  color: var(--outline-variant);
+}
+
+.avatarPlaceholder span {
+  font-size: 32px;
+}
+
+.name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.character {
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .person {
+    width: 90px;
+  }
+
+  .avatarWrap {
+    width: 64px;
+    height: 64px;
+  }
+
+  .avatarPlaceholder span {
+    font-size: 26px;
+  }
+}

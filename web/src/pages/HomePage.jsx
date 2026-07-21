@@ -57,7 +57,10 @@ export default function HomePage() {
 
   const newlyAdded = (allMedia || []).slice(0, 15)
 
-  const trendingWithRank = (trending || []).slice(0, 10)
+  const trendingWithRank = (trending || []).slice(0, 10).map(item => ({
+    ...item,
+    id: item.tmdb_id,
+  }))
 
   return (
     <div>

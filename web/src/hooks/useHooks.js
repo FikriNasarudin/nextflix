@@ -47,6 +47,17 @@ export function useDragScroll() {
   return { ref, onMouseDown }
 }
 
+export function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(query)
+    const handler = (e) => setMatches(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [query])
+  return matches
+}
+
 export function useScrollDirection(threshold = 10) {
   const [scrolled, setScrolled] = useState(false)
   useEffect(() => {

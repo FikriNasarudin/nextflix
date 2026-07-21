@@ -25,6 +25,16 @@ jobs:
       - name: Install system deps
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc musl-dev
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+
       - name: Tidy check
         run: go mod tidy && git diff --exit-code go.mod go.sum
 

@@ -266,6 +266,90 @@ func (r *Router) mountAssets() {
 		io.Copy(w, resp.Body)
 	})))
 
+	r.mux.Handle("GET /api/v1/media/{id}/collection", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		id, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
+		if err != nil { writeError(w, "invalid id", http.StatusBadRequest); return }
+		var collID, tmdbCollID int64
+		var collName string
+		err = r.db.QueryRow(`
+			SELECT c.id, c.name, c.tmdb_collection_id
+			FROM collection_items ci
+			JOIN collections c ON c.id = ci.collection_id
+			WHERE ci.media_id = ?
+			LIMIT 1
+		`, id).Scan(&collID, &collName, &tmdbCollID)
+		if err == sql.ErrNoRows {
+			writeJSON(w, nil)
+			return
+		}
+		if err != nil { writeError(w, "database error", http.StatusInternalServerError); return }
+
+		rows, err := r.db.Query(`
+			SELECT mi.id, mi.title, mi.media_type, mi.duration_seconds,
+			       CASE WHEN mp.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path
+			FROM collection_items ci
+			JOIN media_items mi ON mi.id = ci.media_id
+			LEFT JOIN media_images mp ON mp.media_id = mi.id AND mp.image_type = 'poster' AND mp.is_primary = 1
+			WHERE ci.collection_id = ?
+			ORDER BY ci.sort_order, mi.title
+		`, collID)
+		if err != nil { writeError(w, "database error", http.StatusInternalServerError); return }
+		defer rows.Close()
+
+		type item struct {
+			ID              int64  `json:"id"`
+			Title           string `json:"title"`
+			MediaType       string `json:"media_type"`
+			DurationSeconds int    `json:"duration_seconds"`
+			PosterPath      string `json:"poster_path"`
+		}
+		var items []item
+		for rows.Next() {
+			var i item
+			if err := rows.Scan(&i.ID, &i.Title, &i.MediaType, &i.DurationSeconds, &i.PosterPath); err != nil {
+				writeError(w, "scan error", http.StatusInternalServerError)
+				return
+			}
+			items = append(items, i)
+		}
+		if items == nil { items = []item{} }
+
+		writeJSON(w, map[string]any{
+			"id":   collID,
+			"name": collName,
+			"tmdb_collection_id": tmdbCollID,
+			"items": items,
+		})
+	})))
+
+	r.mux.Handle("GET /api/v1/media/{id}/credits", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		id, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
+		if err != nil { writeError(w, "invalid id", http.StatusBadRequest); return }
+		rows, err := r.db.Query(`SELECT id, tmdb_person_id, name, role, character_name, profile_path, sort_order FROM media_credits WHERE media_id = ? ORDER BY sort_order`, id)
+		if err != nil { writeError(w, "database error", http.StatusInternalServerError); return }
+		defer rows.Close()
+		type credit struct {
+			ID          int64  `json:"id"`
+			PersonID    int64  `json:"tmdb_person_id"`
+			Name        string `json:"name"`
+			Role        string `json:"role"`
+			Character   string `json:"character"`
+			ProfilePath string `json:"profile_path"`
+			SortOrder   int    `json:"sort_order"`
+		}
+		var list []credit
+		for rows.Next() {
+			var c credit
+			if err := rows.Scan(&c.ID, &c.PersonID, &c.Name, &c.Role, &c.Character, &c.ProfilePath, &c.SortOrder); err != nil {
+				writeError(w, "scan error", http.StatusInternalServerError)
+				return
+			}
+			list = append(list, c)
+		}
+		if list == nil { list = []credit{} }
+		writeJSON(w, list)
+	})))
+
 	r.mux.Handle("GET /api/v1/subtitle/{id}/file", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		id, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
 		if err != nil { writeError(w, "invalid id", http.StatusBadRequest); return }

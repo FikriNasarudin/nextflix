@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { backdropUrl } from '../../api/client'
+import { useDetailModal } from '../../context/DetailModalContext'
 import styles from './Hero.module.css'
 
 export default function Hero({ items }) {
   const navigate = useNavigate()
+  const { openDetail } = useDetailModal()
   const [index, setIndex] = useState(0)
   const timerRef = useRef(null)
 
@@ -25,7 +27,9 @@ export default function Hero({ items }) {
   const typeLabel = item.media_type === 'tv' ? 'TV Series' : 'Movie'
 
   const handlePlay = () => navigate('/watch/' + item.id)
-  const handleInfo = () => navigate('/detail/' + item.id)
+  const handleInfo = () => {
+    openDetail(item)
+  }
 
   return (
     <section className={styles.hero}>

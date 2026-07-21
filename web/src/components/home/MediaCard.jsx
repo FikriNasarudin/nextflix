@@ -1,10 +1,12 @@
 import { useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { imageUrl } from '../../api/client'
+import { useDetailModal } from '../../context/DetailModalContext'
 import styles from './MediaCard.module.css'
 
-export default function MediaCard({ item, rank, showProgress, isNew }) {
+export default function MediaCard({ item, rank, showProgress, isNew, hideTitle }) {
   const navigate = useNavigate()
+  const { openDetail } = useDetailModal()
   const [expanded, setExpanded] = useState(false)
   const expandTimer = useRef(null)
   const trailerTimer = useRef(null)
@@ -37,7 +39,7 @@ export default function MediaCard({ item, rank, showProgress, isNew }) {
   }
 
   const handleClick = () => {
-    navigate('/detail/' + item.id)
+    openDetail(item)
   }
 
   const handlePlay = (e) => {
@@ -114,7 +116,7 @@ export default function MediaCard({ item, rank, showProgress, isNew }) {
         </div>
       )}
 
-      {!expanded && <div className={styles.title}>{item.title}</div>}
+      {!expanded && !hideTitle && <div className={styles.title}>{item.title}</div>}
     </div>
   )
 }
