@@ -34,6 +34,10 @@ func New(db *sql.DB, cfg config.EncoderConfig, jobCh chan scanner.EncoderJob) *E
 	return &Encoder{db: db, cfg: cfg, jobCh: jobCh}
 }
 
+func (e *Encoder) Cfg() config.EncoderConfig {
+	return e.cfg
+}
+
 func (e *Encoder) Start(ctx context.Context) {
 	e.ctx, e.cancel = context.WithCancel(ctx)
 	atomic.StoreInt32(&e.running, 1)
@@ -197,10 +201,23 @@ func (e *Encoder) encode(ctx context.Context, job scanner.EncoderJob) error {
 		totalDuration = int64(d)
 	}
 
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(renditions))
+	var codec string
+	e.db.QueryRow(`SELECT codec FROM media_video_tracks WHERE media_id = ? AND is_default = 1`, job.MediaID).Scan(&codec)
+	skip1080p := codec == "h264"
 
+	var activeRenditions []rendition
 	for _, r := range renditions {
+		if r.name == "1080p" && skip1080p {
+			e.db.Exec(`UPDATE encode_jobs SET status = 'completed', progress_percent = 100, finished_at = CURRENT_TIMESTAMP WHERE media_id = ? AND rendition = ?`, job.MediaID, r.name)
+			continue
+		}
+		activeRenditions = append(activeRenditions, r)
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(activeRenditions))
+
+	for _, r := range activeRenditions {
 		wg.Add(1)
 		r := r
 		go func() {
@@ -236,7 +253,7 @@ func (e *Encoder) encode(ctx context.Context, job scanner.EncoderJob) error {
 	playlistPath := filepath.Join(outputDir, "index.m3u8")
 	var masterContent string
 	masterContent += "#EXTM3U\n"
-	for _, r := range renditions {
+	for _, r := range activeRenditions {
 		bandwidth := "1000000"
 		resolution := "854x480"
 		if r.name == "1080p" {
@@ -251,7 +268,7 @@ func (e *Encoder) encode(ctx context.Context, job scanner.EncoderJob) error {
 		return fmt.Errorf("write master: %w", err)
 	}
 
-	for _, r := range renditions {
+	for _, r := range activeRenditions {
 		size := globSize(filepath.Join(outputDir, r.name+"_*.ts"))
 		e.db.Exec(`UPDATE encode_jobs SET output_path = ?, output_size = ?, source_size = ?, source_mtime = ? WHERE media_id = ? AND rendition = ?`,
 			playlistPath, size, srcSize, srcMtime, job.MediaID, r.name)
@@ -259,7 +276,7 @@ func (e *Encoder) encode(ctx context.Context, job scanner.EncoderJob) error {
 
 	e.db.Exec(`UPDATE media_items SET hls_480p_path = ?, hls_stale = 0 WHERE id = ?`, playlistPath, job.MediaID)
 
-	log.Printf("Encoder: complete media=%d → %s (480p + 1080p ABR)", job.MediaID, playlistPath)
+	log.Printf("Encoder: complete media=%d → %s", job.MediaID, playlistPath)
 
 	go e.generateThumbnails(job.MediaID, job.FilePath, outputDir)
 

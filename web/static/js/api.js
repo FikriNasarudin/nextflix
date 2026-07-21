@@ -29,6 +29,29 @@ window.NextflixAPI = (function() {
     return conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g')
   }
 
+  function canPlayDirect(item) {
+    if (!item.container) return false
+    var mime = 'video/' + item.container
+    var el = document.createElement('video')
+    var supported = el.canPlayType(mime)
+
+    if (supported === 'probably') return true
+    if (supported === '') return false
+
+    if (item.container === 'webm') return true
+
+    if (item.container === 'mp4' || item.container === 'm4v' || item.container === 'mov') {
+      if (item.is_hdr) return false
+      if (item.video_codec === 'hevc' || item.video_codec === 'h265') {
+        return el.canPlayType('video/mp4; codecs="hev1"') === 'probably'
+      }
+      if (item.video_codec === 'h264' || !item.video_codec) return true
+      return false
+    }
+
+    return false
+  }
+
     return {
     API: API,
     getToken: getToken,
@@ -36,6 +59,7 @@ window.NextflixAPI = (function() {
     clearToken: clearToken,
     showToast: showToast,
     isSlowConnection: isSlowConnection,
+    canPlayDirect: canPlayDirect,
 
     imageUrl: function(path, id, type, size) {
       type = type || 'poster';

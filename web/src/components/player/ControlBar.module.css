@@ -152,14 +152,24 @@
 .pipBtn {}
 .ratioBtn {}
 
+.mobileVolumeGroup { display: flex; align-items: center; gap: 8px; }
+.mobileOnly { display: none; }
+.noAudio { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+@media (pointer: coarse) {
+  .volumeGroup { display: none; }
+  .ratioBtn { display: none; }
+  .btn { min-width: 48px; min-height: 48px; }
+}
+
 @media (max-width: 768px) {
   .controlBar { padding: 28px var(--space-sm) calc(6px + env(safe-area-inset-bottom,0px)); }
   .row { gap: 2px; }
   .left { gap: 2px; }
   .right { gap: 6px; }
-  .volumeSlider { width: 60px; }
   .btn { padding: 6px; min-width: 44px; min-height: 44px; }
   .pipBtn { display: none; }
+  .ratioBtn { display: none; }
   .timeEnd { display: none; }
   .time { font-size: 11px; min-width: 70px; }
   .progressWrap { height: 28px; }

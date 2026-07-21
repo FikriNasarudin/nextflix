@@ -32,10 +32,15 @@ func init() {
 type StreamHandler struct {
 	db           *sql.DB
 	hlsOutputDir string
+	transcodeSem chan struct{}
 }
 
-func NewStreamHandler(db *sql.DB, hlsOutputDir string) *StreamHandler {
-	return &StreamHandler{db: db, hlsOutputDir: hlsOutputDir}
+func NewStreamHandler(db *sql.DB, hlsOutputDir string, maxTranscodes int) *StreamHandler {
+	sem := make(chan struct{}, maxTranscodes)
+	for i := 0; i < maxTranscodes; i++ {
+		sem <- struct{}{}
+	}
+	return &StreamHandler{db: db, hlsOutputDir: hlsOutputDir, transcodeSem: sem}
 }
 
 func (h *StreamHandler) Serve(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +100,14 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	select {
+	case <-h.transcodeSem:
+	default:
+		http.Error(w, "transcode slot busy, try another source", http.StatusServiceUnavailable)
+		return
+	}
+	defer func() { h.transcodeSem <- struct{}{} }()
+
 	var filePath string
 	err = h.db.QueryRow(`SELECT file_path FROM media_items WHERE id = ?`, id).Scan(&filePath)
 	if err == sql.ErrNoRows {
@@ -106,9 +119,9 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	codec := probeVideoCodec(filePath)
+	codec := lookupCodec(h.db, id, filePath)
 	if codec == "" {
-		http.Error(w, "ffprobe failed", http.StatusInternalServerError)
+		http.Error(w, "video codec detection failed", http.StatusInternalServerError)
 		return
 	}
 	tryCopy := codec == "h264"
@@ -168,6 +181,19 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 	if copyErr != nil {
 		log.Printf("Remux: copy error for id=%d: %v (copied %d bytes)", id, copyErr, n)
 	}
+}
+
+func lookupCodec(db *sql.DB, id int64, filePath string) string {
+	var codec string
+	err := db.QueryRow(`SELECT codec FROM media_video_tracks WHERE media_id = ? AND is_default = 1`, id).Scan(&codec)
+	if err == nil && codec != "" {
+		return codec
+	}
+	c := probeVideoCodec(filePath)
+	if c != "" {
+		db.Exec(`INSERT OR IGNORE INTO media_video_tracks (media_id, codec, is_default) VALUES (?, ?, 1)`, id, c)
+	}
+	return c
 }
 
 func probeVideoCodec(filePath string) string {

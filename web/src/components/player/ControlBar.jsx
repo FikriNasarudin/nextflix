@@ -9,7 +9,7 @@ function formatTime(seconds) {
 }
 
 export default function ControlBar({
-  playing, currentTime, duration, buffered, volume, muted,
+  playing, currentTime, duration, buffered, volume, muted, hasAudio = true,
   isTV,
   onTogglePlay, onSeek, onVolumeChange, onToggleMute, onToggleSettings,
   onSkipBack, onSkipForward, onNextEpisode, onPip, onAspectRatio, onFullscreen,
@@ -117,6 +117,7 @@ export default function ControlBar({
           </span>
         </div>
         <div className={styles.right}>
+          {hasAudio ? (
           <div className={styles.volumeGroup}>
             <button className={styles.btn} onClick={onToggleMute} aria-label="Volume" style={{ padding: '8px 6px' }}>
               <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
@@ -136,6 +137,9 @@ export default function ControlBar({
               onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
             />
           </div>
+          ) : (
+            <span className={styles.noAudio}>No audio</span>
+          )}
           {isTV && (
             <button className={styles.btn + ' ' + styles.nextBtn} onClick={onNextEpisode} aria-label="Next episode">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>

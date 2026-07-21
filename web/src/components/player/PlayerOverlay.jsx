@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Hls from 'hls.js'
-import { apiFetch, tokenParam, showToast, isSlowConnection } from '../../api/client'
+import { apiFetch, tokenParam, showToast, isSlowConnection, canPlayDirect } from '../../api/client'
 import ControlBar from './ControlBar'
 import SettingsDrawer from './SettingsDrawer'
 import EpisodeDrawer from './EpisodeDrawer'
 import styles from './Player.module.css'
+
+let preloadHls = null
+let preloadId = null
 
 export default function PlayerOverlay({ item, allMedia, similarItems, onClose, onEpisodeSelect }) {
   const videoRef = useRef(null)
@@ -13,6 +16,7 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
   const progressTimer = useRef(null)
   const subtitleTrackRef = useRef(null)
   const lastTapRef = useRef({ time: 0, x: 0 })
+  const touchToggleRef = useRef(false)
   const firstInteractionRef = useRef(false)
 
   const [playing, setPlaying] = useState(true)
@@ -22,6 +26,7 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
   const [muted, setMuted] = useState(true)
   const [buffered, setBuffered] = useState(0)
   const [buffering, setBuffering] = useState(false)
+  const [switchingSource, setSwitchingSource] = useState(false)
   const [showControls, setShowControls] = useState(true)
   const [showInfo, setShowInfo] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
@@ -35,19 +40,27 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
   const [audioTracks, setAudioTracks] = useState([])
   const [selectedSubtitle, setSelectedSubtitle] = useState(null)
   const [selectedAudio, setSelectedAudio] = useState(null)
+  const [hasAudio, setHasAudio] = useState(true)
 
   const hideTimer = useRef(null)
   const allMediaRef = useRef(allMedia)
   const onEpisodeSelectRef = useRef(onEpisodeSelect)
+  const showSettingsRef = useRef(false)
+  const showEpisodesRef = useRef(false)
 
   useEffect(() => { allMediaRef.current = allMedia }, [allMedia])
   useEffect(() => { onEpisodeSelectRef.current = onEpisodeSelect }, [onEpisodeSelect])
+  useEffect(() => { showSettingsRef.current = showSettings }, [showSettings])
+  useEffect(() => { showEpisodesRef.current = showEpisodes }, [showEpisodes])
 
   const resetHideTimer = useCallback(() => {
     setShowControls(true)
     setShowInfo(true)
     clearTimeout(hideTimer.current)
     hideTimer.current = setTimeout(() => {
+      const v = videoRef.current
+      if (v && v.paused) return
+      if (showSettingsRef.current || showEpisodesRef.current) return
       setShowControls(false)
       setShowInfo(false)
     }, 3000)
@@ -66,10 +79,21 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
       if (audios) setAudioTracks(audios)
     } catch {}
 
+    if (preloadId === item.id && preloadHls) {
+      if (hlsRef.current) hlsRef.current.destroy()
+      hlsRef.current = preloadHls
+      preloadHls = null
+      preloadId = null
+      hlsRef.current.attachMedia(video)
+      video.play().catch(() => {})
+      return
+    }
+
     const slow = isSlowConnection()
+    const canDirect = canPlayDirect(item)
     const modes = item.hls_path
-      ? (slow ? ['hls', 'remux'] : ['direct', 'remux', 'hls'])
-      : (slow ? ['remux'] : ['direct', 'remux'])
+      ? (slow ? ['hls', 'remux'] : (canDirect ? ['direct', 'remux', 'hls'] : ['remux', 'hls']))
+      : (slow ? ['remux'] : (canDirect ? ['direct', 'remux'] : ['remux']))
 
     let currentIdx = 0
     let generation = 0
@@ -82,16 +106,33 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
       const mode = modes[currentIdx]
       currentIdx++
       const gen = ++generation
+      if (gen > 1) setSwitchingSource(true)
 
       if (mode === 'hls') {
         if (Hls.isSupported()) {
           if (hlsRef.current) hlsRef.current.destroy()
-          const hls = new Hls()
+          const hls = new Hls({
+            lowLatencyMode: false,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+            startLevel: -1,
+            capLevelToPlayerSize: true,
+            abrBandWidthFactor: 0.7,
+            abrBandWidthUpFactor: 0.5,
+          })
           hls.loadSource('/api/v1/hls/' + item.id + '/index.m3u8' + tokenParam())
           hls.attachMedia(video)
           hlsRef.current = hls
           hls.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal && gen === generation) {
+            if (!data.fatal) {
+              if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                hls.startLoad()
+              } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                hls.recoverMediaError()
+              }
+              return
+            }
+            if (gen === generation) {
               hls.destroy()
               hlsRef.current = null
               trySource()
@@ -116,7 +157,15 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
         trySource()
       }
 
-      if (mode === 'remux') {
+      if (mode === 'direct') {
+        fallbackTimer = setTimeout(() => {
+          if (gen !== generation) return
+          trySource()
+        }, 5000)
+        const clearFallback = () => clearTimeout(fallbackTimer)
+        video.addEventListener('loadeddata', clearFallback, { once: true })
+        video.addEventListener('canplay', clearFallback, { once: true })
+      } else if (mode === 'remux') {
         fallbackTimer = setTimeout(() => {
           if (gen !== generation) return
           trySource()
@@ -139,6 +188,11 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
       if (hlsRef.current) {
         hlsRef.current.destroy()
         hlsRef.current = null
+      }
+      if (preloadHls) {
+        preloadHls.destroy()
+        preloadHls = null
+        preloadId = null
       }
     }
   }, [initStream])
@@ -163,6 +217,7 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
         setMuted(false)
         if (video.paused) video.play().catch(() => {})
       }
+      resetHideTimer()
       el.removeEventListener('click', handler)
       el.removeEventListener('touchstart', handler)
       el.removeEventListener('keydown', handler)
@@ -195,10 +250,14 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
         handleNextEpisode()
       }
     }
-    const onPlay = () => { setPlaying(true); setBuffering(false) }
+    const onPlay = () => { setPlaying(true); setBuffering(false); resetHideTimer() }
     const onPause = () => setPlaying(false)
     const onWaiting = () => setBuffering(true)
-    const onCanPlay = () => setBuffering(false)
+    const onCanPlay = () => { setBuffering(false); resetHideTimer() }
+    const onLoadedMetadata = () => {
+      const at = video.audioTracks
+      setHasAudio(at ? at.length > 0 : true)
+    }
     const onSeeking = () => setBuffering(true)
     const onSeeked = () => setBuffering(false)
     const onVolumeChangeEvent = () => {
@@ -209,6 +268,7 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
     video.addEventListener('timeupdate', onTimeUpdate)
     video.addEventListener('durationchange', onDurationChange)
     video.addEventListener('progress', onProgress)
+    video.addEventListener('loadedmetadata', onLoadedMetadata)
     video.addEventListener('ended', onEnded)
     video.addEventListener('play', onPlay)
     video.addEventListener('pause', onPause)
@@ -246,6 +306,7 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
       video.removeEventListener('timeupdate', onTimeUpdate)
       video.removeEventListener('durationchange', onDurationChange)
       video.removeEventListener('progress', onProgress)
+      video.removeEventListener('loadedmetadata', onLoadedMetadata)
       video.removeEventListener('ended', onEnded)
       video.removeEventListener('play', onPlay)
       video.removeEventListener('pause', onPause)
@@ -398,6 +459,20 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
     setIsFullscreen(!isFullscreen)
   }
 
+  const handleContainerClick = (e) => {
+    if (touchToggleRef.current) {
+      touchToggleRef.current = false
+      return
+    }
+    if (showControls) {
+      clearTimeout(hideTimer.current)
+      setShowControls(false)
+      setShowInfo(false)
+    } else {
+      resetHideTimer()
+    }
+  }
+
   const handleTouchEnd = (e) => {
     const v = videoRef.current
     if (!v) return
@@ -410,6 +485,7 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
 
     if (now - last.time < 300) {
       e.preventDefault()
+      clearTimeout(last.timer)
       const half = rect.width / 2
       if (x < half) {
         v.currentTime = Math.max(0, v.currentTime - 10)
@@ -418,7 +494,20 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
       }
       lastTapRef.current = { time: 0, x: 0 }
     } else {
-      lastTapRef.current = { time: now, x }
+      clearTimeout(last.timer)
+      const timer = setTimeout(() => {
+        if (lastTapRef.current.time === now) {
+          touchToggleRef.current = true
+          if (showControls) {
+            clearTimeout(hideTimer.current)
+            setShowControls(false)
+            setShowInfo(false)
+          } else {
+            resetHideTimer()
+          }
+        }
+      }, 300)
+      lastTapRef.current = { time: now, x, timer }
     }
   }
 
@@ -462,6 +551,7 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
 
   const handleClose = () => {
     if (hlsRef.current) hlsRef.current.destroy()
+    if (preloadHls) { preloadHls.destroy(); preloadHls = null; preloadId = null }
     onClose()
   }
 
@@ -475,6 +565,12 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
     const currentIdx = showEps.findIndex(e => e.id === item.id)
     if (currentIdx >= 0 && currentIdx < showEps.length - 1) {
       const next = showEps[currentIdx + 1]
+      if (preloadHls) { preloadHls.destroy(); preloadHls = null; preloadId = null }
+      if (next.hls_path && Hls.isSupported()) {
+        preloadHls = new Hls()
+        preloadHls.loadSource('/api/v1/hls/' + next.id + '/index.m3u8' + tokenParam())
+        preloadId = next.id
+      }
       let countdown = 8
       setNextEpCountdown({ item: next, seconds: countdown })
       const timer = setInterval(() => {
@@ -527,12 +623,13 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
             playsInline
             muted
             crossOrigin="anonymous"
-            onClick={togglePlay}
+            onClick={handleContainerClick}
             onMouseMove={resetHideTimer}
             onTouchEnd={handleTouchEnd}
           />
 
           {buffering && <div className={styles.loadingSpinner} />}
+          {switchingSource && <div className={styles.switchOverlay}><div className={styles.switchSpinner} /><span>Switching source…</span></div>}
 
           <div className={`${styles.topOverlay} ${showControls ? styles.visible : ''}`}>
             <button className={styles.back} onClick={handleClose}>← Back to Browse</button>
@@ -608,6 +705,7 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
           buffered={buffered}
           volume={volume}
           muted={muted}
+          hasAudio={hasAudio}
           isTV={isTV}
           onTogglePlay={togglePlay}
           onSeek={handleSeek}

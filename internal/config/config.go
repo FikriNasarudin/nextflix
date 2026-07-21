@@ -54,10 +54,11 @@ type ScannerConfig struct {
 }
 
 type EncoderConfig struct {
-	EnableAuto480pHLS      bool   `yaml:"enable_auto_480p_hls"`
-	HLSSegmentDurationSec  int    `yaml:"hls_segment_duration_sec"`
-	FFmpegPreset           string `yaml:"ffmpeg_preset"`
-	HLSOutputDir           string `yaml:"hls_output_dir"`
+	EnableAuto480pHLS       bool   `yaml:"enable_auto_480p_hls"`
+	HLSSegmentDurationSec   int    `yaml:"hls_segment_duration_sec"`
+	FFmpegPreset            string `yaml:"ffmpeg_preset"`
+	HLSOutputDir            string `yaml:"hls_output_dir"`
+	MaxConcurrentTranscodes int    `yaml:"max_concurrent_transcodes"`
 }
 
 type IntegrationsConfig struct {
@@ -90,10 +91,11 @@ func Defaults() *Config {
 			EnableFilesystemWatcher: true,
 		},
 		Encoder: EncoderConfig{
-			EnableAuto480pHLS:     true,
-			HLSSegmentDurationSec: 4,
-			FFmpegPreset:          "ultrafast",
-			HLSOutputDir:          "./data/transcodes",
+			EnableAuto480pHLS:       true,
+			HLSSegmentDurationSec:   4,
+			FFmpegPreset:            "ultrafast",
+			HLSOutputDir:            "./data/transcodes",
+			MaxConcurrentTranscodes: 1,
 		},
 		Data: DataConfig{
 			Dir:            "./data",

@@ -35,6 +35,32 @@ export function isSlowConnection() {
   return conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g')
 }
 
+export function canPlayDirect(item) {
+  const { video_codec: codec, container, is_hdr } = item
+  if (!container) return false
+
+  const mime = 'video/' + container
+  const el = document.createElement('video')
+  const supported = el.canPlayType(mime)
+
+  if (supported === 'probably') return true
+  if (supported === '') return false
+
+  if (container === 'webm') return true
+
+  if (container === 'mp4' || container === 'm4v' || container === 'mov') {
+    if (is_hdr) return false
+    if (codec === 'hevc' || codec === 'h265') {
+      const hevcSupported = el.canPlayType('video/mp4; codecs="hev1"')
+      return hevcSupported === 'probably'
+    }
+    if (codec === 'h264' || !codec) return true
+    return false
+  }
+
+  return false
+}
+
 function tokenParam() {
   const t = getToken()
   return t ? '?token=' + encodeURIComponent(t) : ''

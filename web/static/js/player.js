@@ -293,9 +293,10 @@ function initPlayer(item) {
 
     let retries = 0;
     let tryGeneration = 0;
+    var canDirect = NextflixAPI.canPlayDirect ? NextflixAPI.canPlayDirect(item) : true;
     const modes = item.hls_path
-      ? (NextflixAPI.isSlowConnection() ? ['hls', 'remux'] : ['direct', 'remux', 'hls'])
-      : (NextflixAPI.isSlowConnection() ? ['remux'] : ['direct', 'remux']);
+      ? (NextflixAPI.isSlowConnection() ? ['hls', 'remux'] : (canDirect ? ['direct', 'remux', 'hls'] : ['remux', 'hls']))
+      : (NextflixAPI.isSlowConnection() ? ['remux'] : (canDirect ? ['direct', 'remux'] : ['remux']));
 
     function trySource() {
       if (retries >= modes.length) {

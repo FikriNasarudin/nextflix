@@ -42,11 +42,16 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(mi.hls_480p_path, '') as hls_480p_path,
 		       mi.file_path,
 		COALESCE((SELECT GROUP_CONCAT(t.name, '||') FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE mt.media_id = mi.id), '') as tags,
-		       mi.created_at
+		       mi.created_at,
+		       COALESCE(v.codec, '') as video_codec,
+		       COALESCE(v.width, 0) as width,
+		       COALESCE(v.height, 0) as height,
+		       COALESCE(v.is_hdr, 0) as is_hdr
 		FROM media_items mi
 		LEFT JOIN media_images mb ON mb.media_id = mi.id AND mb.image_type = 'backdrop' AND mb.is_primary = 1
 		LEFT JOIN media_images mp ON mp.media_id = mi.id AND mp.image_type = 'poster' AND mp.is_primary = 1
 		LEFT JOIN show_images si ON si.show_name = mi.show_name AND si.image_type = 'poster' AND si.season_number = 0
+		LEFT JOIN media_video_tracks v ON v.media_id = mi.id AND v.is_default = 1
 		WHERE 1=1
 	`
 
@@ -101,6 +106,10 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		Overview         string   `json:"overview"`
 		HLS480pPath      string   `json:"hls_path"`
 		Container        string   `json:"container"`
+		VideoCodec       string   `json:"video_codec"`
+		Width            int      `json:"width"`
+		Height           int      `json:"height"`
+		IsHDR            bool     `json:"is_hdr"`
 		Tags             []string `json:"tags"`
 		CreatedAt        string   `json:"created_at"`
 	}
@@ -114,6 +123,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 			&i.DurationSeconds, &i.TrailerYoutubeID, &i.BackdropPath, &i.PosterPath,
 			&i.ShowName, &i.SeasonNumber, &i.EpisodeNumber, &i.EpisodeTitle, &i.Year, &i.Overview,
 			&i.HLS480pPath, &filePath, &tagsStr, &i.CreatedAt,
+			&i.VideoCodec, &i.Width, &i.Height, &i.IsHDR,
 		); err != nil {
 			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
 			return

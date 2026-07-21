@@ -134,7 +134,11 @@ func (r *Router) mountHealth() {
 }
 
 func (r *Router) mountStreaming() {
-	sh := NewStreamHandler(r.db, r.hlsDir)
+	maxTx := 1
+	if r.encoder != nil {
+		maxTx = r.encoder.Cfg().MaxConcurrentTranscodes
+	}
+	sh := NewStreamHandler(r.db, r.hlsDir, maxTx)
 	r.mux.Handle("GET /api/v1/stream/{id}", r.authMid(http.HandlerFunc(sh.Serve)))
 	r.mux.Handle("GET /api/v1/remux/{id}", r.authMid(http.HandlerFunc(sh.Remux)))
 	r.mux.Handle("GET /api/v1/hls/{id}/{rest...}", r.authMid(http.HandlerFunc(sh.HLSFile)))
