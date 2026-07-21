@@ -18,6 +18,13 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+var imageExtensions = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".tbn": true, ".gif": true, ".svg": true,
+}
+
+var posterBaseNames = []string{"poster", "folder", "cover", "default", "movie", "show"}
+var backdropBaseNames = []string{"backdrop", "fanart", "background", "art"}
+
 type ProbeStream struct {
 	CodecType string `json:"codec_type"`
 	CodecName string `json:"codec_name"`
@@ -96,11 +103,12 @@ func (p *ScanProgress) setLastItem(item string) {
 }
 
 type Scanner struct {
-	db        *sql.DB
-	cfg       config.ScannerConfig
-	probeSem  chan struct{}
-	encoderCh chan<- EncoderJob
-	progress  *ScanProgress
+	db            *sql.DB
+	cfg           config.ScannerConfig
+	probeSem      chan struct{}
+	encoderCh     chan<- EncoderJob
+	progress      *ScanProgress
+	imageCacheDir string
 }
 
 var videoExts = map[string]bool{
@@ -113,13 +121,17 @@ var videoExts = map[string]bool{
 	".m4v":  true,
 }
 
-func New(db *sql.DB, cfg config.ScannerConfig, encoderCh chan<- EncoderJob) *Scanner {
+func New(db *sql.DB, cfg config.ScannerConfig, encoderCh chan<- EncoderJob, imageCacheDir string) *Scanner {
+	if imageCacheDir == "" {
+		imageCacheDir = "./data/images"
+	}
 	return &Scanner{
-		db:        db,
-		cfg:       cfg,
-		probeSem:  make(chan struct{}, cfg.MaxConcurrentFFprobes),
-		encoderCh: encoderCh,
-		progress:  &ScanProgress{},
+		db:            db,
+		cfg:           cfg,
+		probeSem:      make(chan struct{}, cfg.MaxConcurrentFFprobes),
+		encoderCh:     encoderCh,
+		progress:      &ScanProgress{},
+		imageCacheDir: imageCacheDir,
 	}
 }
 
@@ -460,7 +472,10 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 
 		s.encoderCh <- EncoderJob{MediaID: id, FilePath: path}
 
-		s.detectLocalImages(id, path, ep.ShowName, ep.SeasonNumber, mediaType)
+		if !s.detectLocalImages(id, path, ep.ShowName, ep.SeasonNumber, mediaType) {
+			s.extractEmbeddedCover(id, path)
+		}
+
 		s.detectSubtitles(id, path)
 		s.storeAudioTracks(id, result.Streams)
 	}
@@ -558,22 +573,22 @@ func (s *Scanner) resolveGroupID(path string, libraryID int64) int64 {
 	return hash
 }
 
-func (s *Scanner) detectLocalImages(mediaID int64, filePath, showName string, seasonNumber int, mediaType string) {
+func (s *Scanner) detectLocalImages(mediaID int64, filePath, showName string, seasonNumber int, mediaType string) bool {
 	dir := filepath.Dir(filePath)
-	posterNames := []string{"poster.jpg", "poster.png", "folder.jpg", "folder.png", "cover.jpg", "movie.jpg"}
-	backdropNames := []string{"backdrop.jpg", "backdrop.png", "fanart.jpg", "background.jpg"}
+	hasPoster := false
 
-	for _, name := range posterNames {
-		p := filepath.Join(dir, name)
-		if _, err := os.Stat(p); err == nil {
+	for _, base := range posterBaseNames {
+		p := findImageInDir(dir, base)
+		if p != "" {
 			s.db.Exec(`INSERT OR IGNORE INTO media_images (media_id, image_type, file_path, is_primary) VALUES (?, 'poster', ?, 1)`, mediaID, p)
+			hasPoster = true
 			break
 		}
 	}
 
-	for _, name := range backdropNames {
-		p := filepath.Join(dir, name)
-		if _, err := os.Stat(p); err == nil {
+	for _, base := range backdropBaseNames {
+		p := findImageInDir(dir, base)
+		if p != "" {
 			s.db.Exec(`INSERT OR IGNORE INTO media_images (media_id, image_type, file_path, is_primary) VALUES (?, 'backdrop', ?, 1)`, mediaID, p)
 			s.db.Exec(`UPDATE media_items SET backdrop_path = ? WHERE id = ? AND (backdrop_path = '' OR backdrop_path IS NULL)`, p, mediaID)
 			break
@@ -583,36 +598,96 @@ func (s *Scanner) detectLocalImages(mediaID int64, filePath, showName string, se
 	if showName != "" && mediaType == "tv" {
 		parentDir := filepath.Dir(dir)
 		if seasonNumber > 0 {
-			seasonPosters := []string{
-				fmt.Sprintf("season%02d-poster.jpg", seasonNumber),
-				fmt.Sprintf("season%d-poster.jpg", seasonNumber),
-				fmt.Sprintf("Season%02d-poster.jpg", seasonNumber),
+			seasonBases := []string{
+				fmt.Sprintf("season%02d-poster", seasonNumber),
+				fmt.Sprintf("season%d-poster", seasonNumber),
+				fmt.Sprintf("Season%02d-poster", seasonNumber),
 			}
-			for _, name := range seasonPosters {
-				p := filepath.Join(parentDir, name)
-				if _, err := os.Stat(p); err == nil {
+			for _, base := range seasonBases {
+				p := findImageInDir(parentDir, base)
+				if p != "" {
 					s.db.Exec(`INSERT OR IGNORE INTO show_images (show_name, image_type, season_number, file_path) VALUES (?, 'season_poster', ?, ?)`, showName, seasonNumber, p)
 					break
 				}
 			}
 		}
 
-		showPosterNames := append(posterNames, "show.jpg", "tvshow.jpg")
-		for _, name := range showPosterNames {
-			p := filepath.Join(parentDir, name)
-			if _, err := os.Stat(p); err == nil {
+		showPoster := append([]string{}, posterBaseNames...)
+		showPoster = append(showPoster, "tvshow")
+		for _, base := range showPoster {
+			p := findImageInDir(parentDir, base)
+			if p != "" {
 				s.db.Exec(`INSERT OR IGNORE INTO show_images (show_name, image_type, season_number, file_path) VALUES (?, 'poster', 0, ?)`, showName, p)
 				break
 			}
 		}
-		for _, name := range backdropNames {
-			p := filepath.Join(parentDir, name)
-			if _, err := os.Stat(p); err == nil {
+		for _, base := range backdropBaseNames {
+			p := findImageInDir(parentDir, base)
+			if p != "" {
 				s.db.Exec(`INSERT OR IGNORE INTO show_images (show_name, image_type, season_number, file_path) VALUES (?, 'backdrop', 0, ?)`, showName, p)
 				break
 			}
 		}
 	}
+
+	return hasPoster
+}
+
+func findImageInDir(dir, baseName string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	lower := strings.ToLower(baseName)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if !imageExtensions[ext] {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())))
+		if name == lower {
+			return filepath.Join(dir, entry.Name())
+		}
+	}
+	return ""
+}
+
+func (s *Scanner) extractEmbeddedCover(mediaID int64, filePath string) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return
+	}
+
+	if err := os.MkdirAll(s.imageCacheDir, 0755); err != nil {
+		log.Printf("Scanner: cannot create image cache dir %s: %v", s.imageCacheDir, err)
+		return
+	}
+
+	outPath := filepath.Join(s.imageCacheDir, fmt.Sprintf("%d-poster.jpg", mediaID))
+
+	cmd := exec.Command("ffmpeg",
+		"-y",
+		"-loglevel", "error",
+		"-ss", "0",
+		"-i", filePath,
+		"-vframes", "1",
+		"-q:v", "2",
+		outPath,
+	)
+
+	if err := cmd.Run(); err != nil {
+		return
+	}
+
+	info, err := os.Stat(outPath)
+	if err != nil || info.Size() == 0 {
+		return
+	}
+
+	s.db.Exec(`INSERT OR IGNORE INTO media_images (media_id, image_type, file_path, is_primary) VALUES (?, 'poster', ?, 1)`, mediaID, outPath)
+	log.Printf("Scanner: extracted embedded poster for media %d", mediaID)
 }
 
 var subtitleExts = map[string]string{

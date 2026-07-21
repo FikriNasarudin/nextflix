@@ -207,6 +207,28 @@ func (r *Router) mountAssets() {
 		var path string
 		err = r.db.QueryRow(`SELECT file_path FROM media_images WHERE media_id = ? AND image_type = ? ORDER BY is_primary DESC LIMIT 1`, id, imgType).Scan(&path)
 		if err != nil {
+			if imgType == "poster" {
+				var showName, seasonNumberStr string
+				if err2 := r.db.QueryRow(`SELECT show_name, COALESCE(season_number, 0) || '' FROM media_items WHERE id = ?`, id).Scan(&showName, &seasonNumberStr); err2 == nil && showName != "" {
+					seasonNum, _ := strconv.Atoi(seasonNumberStr)
+					if seasonNum > 0 {
+						var sp string
+						err3 := r.db.QueryRow(`SELECT file_path FROM show_images WHERE show_name = ? AND image_type = 'season_poster' AND season_number = ? LIMIT 1`, showName, seasonNum).Scan(&sp)
+						if err3 == nil {
+							w.Header().Set("Cache-Control", "public, max-age=86400")
+							http.ServeFile(w, req, sp)
+							return
+						}
+					}
+					var sp string
+					err4 := r.db.QueryRow(`SELECT file_path FROM show_images WHERE show_name = ? AND image_type = 'poster' AND season_number = 0 ORDER BY file_path LIMIT 1`, showName).Scan(&sp)
+					if err4 == nil {
+						w.Header().Set("Cache-Control", "public, max-age=86400")
+						http.ServeFile(w, req, sp)
+						return
+					}
+				}
+			}
 			w.Header().Set("Content-Type", "image/svg+xml")
 			w.Header().Set("Cache-Control", "public, max-age=86400")
 			w.Write([]byte(placeholderSVG))

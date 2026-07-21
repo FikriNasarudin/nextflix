@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -67,7 +68,7 @@ func main() {
 	enc := encoder.New(db, cfg.Encoder, encoderCh)
 	enc.Start()
 
-	scn := scanner.New(db, cfg.Scanner, encoderCh)
+	scn := scanner.New(db, cfg.Scanner, encoderCh, filepath.Join(filepath.Dir(cfg.Database.Path), "images"))
 	scn.Watch()
 	go scn.ScanAll()
 
