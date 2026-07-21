@@ -90,7 +90,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         addr(cfg.Server.Port),
-		Handler:      handler.NewRouter(db, authMgr, cfg.Encoder.HLSOutputDir, lm.Scanner(), scanFunc),
+		Handler:      handler.NewRouter(db, authMgr, cfg.Encoder.HLSOutputDir, cfg.Scanner.MediaDir, lm.Scanner(), scanFunc),
 		ReadTimeout:  time.Duration(cfg.Server.ReadTimeoutSec) * time.Second,
 		WriteTimeout: time.Duration(cfg.Server.WriteTimeoutSec) * time.Second,
 		IdleTimeout:  60 * time.Second,

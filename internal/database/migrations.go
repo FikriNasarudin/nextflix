@@ -289,7 +289,26 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 		media_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
 		sort_order INTEGER DEFAULT 0,
 		PRIMARY KEY (collection_id, media_id)
+	)`	)
+
+	// v7: library media_type + library_folders (Jellyfin-style multi-folder libraries)
+	db.Exec(`ALTER TABLE libraries ADD COLUMN media_type TEXT DEFAULT 'movie'`)
+
+	db.Exec(`CREATE TABLE IF NOT EXISTS library_folders (
+		library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+		folder_path TEXT NOT NULL,
+		PRIMARY KEY (library_id, folder_path)
 	)`)
+
+	// Migrate existing library_dir into library_folders
+	db.Exec(`INSERT OR IGNORE INTO library_folders (library_id, folder_path)
+		SELECT id, library_dir FROM libraries WHERE library_dir != '' AND library_dir IS NOT NULL`)
+
+	// Set media_type for existing libraries based on directory name
+	db.Exec(`UPDATE libraries SET media_type = 'tv'
+		WHERE LOWER(library_dir) IN ('tvshows', 'tv', 'tv-shows', 'tv shows', 'television', 'series', 'anime')`)
+	db.Exec(`UPDATE libraries SET media_type = 'movie'
+		WHERE LOWER(library_dir) IN ('movies', 'movie', 'films', 'film', 'moviess', 'mmovies')`)
 
 	log.Println("Database migrations complete")
 	return nil

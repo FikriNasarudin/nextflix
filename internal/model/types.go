@@ -20,11 +20,12 @@ type Profile struct {
 }
 
 type Library struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	LibraryDir  string `json:"library_dir"`
-	CreatedAt   string `json:"created_at"`
+	ID          int64    `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	MediaType   string   `json:"media_type"`
+	FolderPaths []string `json:"folder_paths"`
+	CreatedAt   string   `json:"created_at"`
 }
 
 type Tag struct {

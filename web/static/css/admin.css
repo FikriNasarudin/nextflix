@@ -54,6 +54,17 @@
 .access-chip { display:flex; align-items:center; gap:6px; padding:6px var(--space-sm); border-radius:var(--radius); background:var(--surface-container-high); cursor:pointer; font-size:.85rem; user-select:none; transition:all .15s; }
 .access-chip.selected { background:var(--primary-container); color:var(--on-primary-container); }
 
+.admin-select { width:100%; padding:10px var(--space-sm); border:1px solid var(--outline-variant); border-radius:var(--radius); background:var(--surface-container-low); color:var(--text); font-size:.9rem; font-family:inherit; cursor:pointer; }
+.admin-select:focus { outline:none; border-color:var(--secondary-container); }
+
+.folder-picker { display:flex; flex-direction:column; gap:8px; }
+.folder-picker input { padding:10px var(--space-sm); border:1px solid var(--outline-variant); border-radius:var(--radius); background:var(--surface-container-low); color:var(--text); font-size:.9rem; font-family:inherit; }
+.folder-picker input:focus { outline:none; border-color:var(--secondary-container); }
+.folder-chips { display:flex; flex-wrap:wrap; gap:4px; min-height:8px; }
+.folder-chip { display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:var(--radius-full); background:var(--primary-container); color:var(--on-primary-container); font-size:.82rem; font-weight:500; }
+.folder-chip button { background:none; border:none; color:inherit; cursor:pointer; font-size:1rem; line-height:1; padding:0; opacity:.7; }
+.folder-chip button:hover { opacity:1; }
+
 .empty-state { text-align:center; padding:40px; color:var(--muted); font-size:.9rem; }
 .empty-state p { margin-bottom:var(--space-sm); }
 

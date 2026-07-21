@@ -28,18 +28,20 @@ type Router struct {
 	db       *sql.DB
 	authMgr  *auth.Manager
 	hlsDir   string
+	mediaDir string
 	authMid  func(http.Handler) http.Handler
 	adminMid func(http.Handler) http.Handler
 	scanner  *scanner.Scanner
 	scanFunc func()
 }
 
-func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, scn *scanner.Scanner, scanFunc func()) *Router {
+func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, mediaDir string, scn *scanner.Scanner, scanFunc func()) *Router {
 	r := &Router{
 		mux:      http.NewServeMux(),
 		db:       db,
 		authMgr:  authMgr,
 		hlsDir:   hlsDir,
+		mediaDir: mediaDir,
 		authMid:  middleware.Auth(authMgr),
 		adminMid: middleware.RequireAdmin,
 		scanner:  scn,
@@ -326,7 +328,7 @@ func (r *Router) mountFrontend() {
 
 func (r *Router) mountAdmin() {
 	uh := admin.NewUserHandler(r.db)
-	lh := admin.NewLibraryHandler(r.db)
+	lh := admin.NewLibraryHandler(r.db, r.mediaDir)
 	th := admin.NewTagHandler(r.db)
 	mh := admin.NewMediaHandler(r.db)
 	sh := admin.NewSettingsHandler(r.db)
@@ -337,6 +339,8 @@ func (r *Router) mountAdmin() {
 	}
 
 	adminMux := http.NewServeMux()
+
+	adminMux.Handle("GET /api/v1/admin/directories", a(lh.ListDirectories))
 
 	adminMux.Handle("GET /api/v1/admin/users", a(uh.List))
 	adminMux.Handle("POST /api/v1/admin/users", a(uh.Create))

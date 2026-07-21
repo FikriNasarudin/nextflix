@@ -288,12 +288,12 @@ async function renderLibraries(el) {
       <h1>Libraries</h1>
       <button class="btn btn-primary" id="addLibBtn">+ Add Library</button>
     </div>
-    <table class="admin-table"><thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Dir</th><th>Media</th><th>Actions</th></tr></thead><tbody>
+    <table class="admin-table"><thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Folders</th><th>Media</th><th>Actions</th></tr></thead><tbody>
       ${libs.map(l => `<tr>
         <td>${l.id}</td>
         <td>${l.name}</td>
-        <td>${l.description || ''}</td>
-        <td>${l.library_dir || '—'}</td>
+        <td>${l.media_type === 'tv' ? 'TV Shows' : 'Movies'}</td>
+        <td>${(l.folder_paths||[]).join(', ') || '—'}</td>
         <td>${(media||[]).filter(m => m.library_id === l.id).length}</td>
         <td>
           <button class="btn btn-sm btn-outline" onclick="editLib(${l.id})">Edit</button>
@@ -303,14 +303,28 @@ async function renderLibraries(el) {
       </tr>`).join('')}
     </tbody></table>`;
 
-  document.getElementById('addLibBtn').onclick = () => {
+  document.getElementById('addLibBtn').onclick = async () => {
+    const dirs = await api('/directories') || [];
     modal('Add Library', `
-      <div class="form-row"><label>Name</label><input name="name" placeholder="Library name"></div>
-      <div class="form-row"><label>Directory</label><input name="library_dir" placeholder="e.g. Movies (subdir under media dir)"></div>
-      <div class="form-row"><label>Description</label><input name="description" placeholder="Optional description"></div>
+      <div class="form-row">
+        <label>Content Type</label>
+        <select name="media_type" class="admin-select"><option value="movie">Movies</option><option value="tv">TV Shows</option></select>
+      </div>
+      <div class="form-row"><label>Display Name</label><input name="name" placeholder="e.g. My Movies"></div>
+      <div class="form-row"><label>Description</label><input name="description" placeholder="Optional"></div>
+      <div class="form-row">
+        <label>Folders</label>
+        <div class="folder-picker">
+          <div class="folder-chips" id="folderChips"></div>
+          <input name="folder_input" list="dirList" placeholder="Search and select folder..." onchange="addFolderChip(this,'folderChips')" style="width:100%">
+          <datalist id="dirList">${dirs.map(d => `<option value="${d}">`).join('')}</datalist>
+        </div>
+      </div>
     `, async () => {
       const d = formData(document.querySelector('.modal-body'));
+      d.folder_paths = collectChips('folderChips');
       if (!d.name) { toast('Name required', 'error'); return; }
+      if (!d.folder_paths.length) { toast('At least one folder required', 'error'); return; }
       await api('/libraries', { method: 'POST', body: JSON.stringify(d) });
       toast('Library created', 'success');
       renderLibraries(el);
@@ -322,16 +336,53 @@ window.editLib = async (id) => {
   const libs = await api('/libraries') || [];
   const l = libs.find(x => x.id === id);
   if (!l) return;
+  const dirs = await api('/directories') || [];
   modal('Edit Library', `
-    <div class="form-row"><label>Name</label><input name="name" value="${l.name}"></div>
-    <div class="form-row"><label>Directory</label><input name="library_dir" value="${l.library_dir||''}" placeholder="e.g. Movies"></div>
+    <div class="form-row">
+      <label>Content Type</label>
+      <select name="media_type" class="admin-select">
+        <option value="movie" ${l.media_type==='movie'?'selected':''}>Movies</option>
+        <option value="tv" ${l.media_type==='tv'?'selected':''}>TV Shows</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Display Name</label><input name="name" value="${l.name}"></div>
     <div class="form-row"><label>Description</label><input name="description" value="${l.description||''}" placeholder="Description"></div>
+    <div class="form-row">
+      <label>Folders</label>
+      <div class="folder-picker">
+        <div class="folder-chips" id="folderChips">${(l.folder_paths||[]).map(f => `<span class="folder-chip" data-path="${f}">${f} <button type="button" onclick="this.parentElement.remove()">×</button></span>`).join('')}</div>
+          <input list="dirList" placeholder="Search and select folder..." onchange="addFolderChip(this,'folderChips')" style="width:100%">
+        <datalist id="dirList">${dirs.map(d => `<option value="${d}">`).join('')}</datalist>
+      </div>
+    </div>
   `, async () => {
     const d = formData(document.querySelector('.modal-body'));
+    d.folder_paths = collectChips('folderChips');
+    if (!d.name) { toast('Name required', 'error'); return; }
+    if (!d.folder_paths.length) { toast('At least one folder required', 'error'); return; }
     await api('/libraries/' + id, { method: 'PUT', body: JSON.stringify(d) });
     toast('Library updated', 'success');
     renderLibraries(document.getElementById('adminContent'));
   });
+};
+
+window.addFolderChip = (input, chipContainerId) => {
+  const val = input.value.trim();
+  if (!val) return;
+  const chips = document.getElementById(chipContainerId);
+  if (chips.querySelector(`[data-path="${val}"]`)) { input.value = ''; return; }
+  const span = document.createElement('span');
+  span.className = 'folder-chip';
+  span.dataset.path = val;
+  span.innerHTML = val + ' <button type="button" onclick="this.parentElement.remove()">×</button>';
+  chips.appendChild(span);
+  input.value = '';
+};
+
+window.collectChips = (chipContainerId) => {
+  const chips = document.getElementById(chipContainerId);
+  if (!chips) return [];
+  return Array.from(chips.querySelectorAll('.folder-chip')).map(c => c.dataset.path);
 };
 
 window.deleteLib = async (id) => {

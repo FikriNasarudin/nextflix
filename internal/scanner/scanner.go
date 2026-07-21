@@ -158,7 +158,7 @@ func (s *Scanner) ScanAll(resolve ProcessFunc) {
 	s.progress.setLibrary("")
 	s.progress.setLastItem("")
 
-	libraries := s.ensureLibraries()
+	libraries := s.loadLibraries()
 	if len(libraries) == 0 {
 		log.Println("Scanner: no library directories found under", s.cfg.MediaDir)
 		s.progress.setRunning(false)
@@ -248,69 +248,39 @@ func titleCase(s string) string {
 	return strings.Join(words, " ")
 }
 
-func mediaTypeForLibrary(name string) string {
-	switch strings.ToLower(name) {
-	case "movies", "movie", "films", "film":
-		return "movie"
-	case "tvshows", "tv", "tv-shows", "television", "series":
-		return "tv"
-	case "anime":
-		return "movie"
-	default:
-		return "movie"
-	}
-}
-
-func (s *Scanner) ensureLibraries() map[string]libraryInfo {
-	entries, err := os.ReadDir(s.cfg.MediaDir)
-	if err != nil {
-		log.Printf("Scanner: cannot read media dir %s: %v", s.cfg.MediaDir, err)
-		return nil
-	}
-
-	existing := make(map[string]int64)
-	rows, err := s.db.Query(`SELECT id, library_dir FROM libraries WHERE library_dir != ''`)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var id int64
-			var dir string
-			if err := rows.Scan(&id, &dir); err != nil {
-				continue
-			}
-			existing[dir] = id
-		}
-	}
-
+func (s *Scanner) loadLibraries() map[string]libraryInfo {
 	result := make(map[string]libraryInfo)
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
+	rows, err := s.db.Query(`
+		SELECT l.id, l.name, l.media_type, lf.folder_path
+		FROM libraries l
+		JOIN library_folders lf ON lf.library_id = l.id
+		WHERE lf.folder_path != ''
+		ORDER BY l.id, lf.folder_path
+	`)
+	if err != nil {
+		log.Printf("Scanner: cannot query libraries: %v", err)
+		return nil
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var libID int64
+		var name, mediaType, folderPath string
+		if err := rows.Scan(&libID, &name, &mediaType, &folderPath); err != nil {
 			continue
 		}
-		dirName := entry.Name()
-		libID, known := existing[dirName]
-
-		if !known {
-			libName := titleCase(strings.ReplaceAll(dirName, "-", " "))
-			res, err := s.db.Exec(
-				`INSERT INTO libraries (name, description, library_dir) VALUES (?, ?, ?)`,
-				libName, "", dirName,
-			)
-			if err != nil {
-				log.Printf("Scanner: create library for %s: %v", dirName, err)
-				continue
+		if _, exists := result[folderPath]; !exists {
+			result[folderPath] = libraryInfo{
+				id:        libID,
+				name:      name,
+				mediaType: mediaType,
 			}
-			id, _ := res.LastInsertId()
-			libID = id
-			log.Printf("Scanner: auto-created library %q (id=%d) for %s", libName, id, dirName)
 		}
+	}
 
-		result[dirName] = libraryInfo{
-			id:        libID,
-			name:      dirName,
-			mediaType: mediaTypeForLibrary(dirName),
-		}
+	if len(result) == 0 {
+		log.Println("Scanner: no libraries configured — use /admin/libraries to create them")
 	}
 
 	return result
@@ -336,7 +306,7 @@ func (s *Scanner) Watch(resolve ProcessFunc) {
 	}
 
 	addDir(s.cfg.MediaDir)
-	libraries := s.ensureLibraries()
+	libraries := s.loadLibraries()
 	for dir := range libraries {
 		addDir(filepath.Join(s.cfg.MediaDir, dir))
 	}
@@ -349,20 +319,14 @@ func (s *Scanner) Watch(resolve ProcessFunc) {
 					return
 				}
 
-				if event.Op&fsnotify.Create != 0 {
-					fi, err := os.Stat(event.Name)
-					if err == nil && fi.IsDir() {
-						dirName := filepath.Base(event.Name)
-						addDir(event.Name)
-						libName := titleCase(strings.ReplaceAll(dirName, "-", " "))
-						s.db.Exec(
-							`INSERT OR IGNORE INTO libraries (name, description, library_dir) VALUES (?, ?, ?)`,
-							libName, "", dirName,
-						)
-						log.Printf("Scanner: watching new library dir %s", event.Name)
-						continue
-					}
+			if event.Op&fsnotify.Create != 0 {
+				fi, err := os.Stat(event.Name)
+				if err == nil && fi.IsDir() {
+					addDir(event.Name)
+					log.Printf("Scanner: detected new directory %s — update libraries in admin panel to include it", event.Name)
+					continue
 				}
+			}
 
 				if event.Op&(fsnotify.Create|fsnotify.Write) == 0 {
 					continue
@@ -422,19 +386,16 @@ func (s *Scanner) resolveLibrary(path string) (int64, string) {
 	dirName := parts[0]
 
 	var libID int64
-	s.db.QueryRow(`SELECT id FROM libraries WHERE library_dir = ?`, dirName).Scan(&libID)
+	var mediaType string
+	s.db.QueryRow(`
+		SELECT l.id, l.media_type FROM libraries l
+		JOIN library_folders lf ON lf.library_id = l.id
+		WHERE lf.folder_path = ?
+	`, dirName).Scan(&libID, &mediaType)
 	if libID == 0 {
-		libName := titleCase(strings.ReplaceAll(dirName, "-", " "))
-		res, err := s.db.Exec(
-			`INSERT INTO libraries (name, description, library_dir) VALUES (?, ?, ?)`,
-			libName, "", dirName,
-		)
-		if err == nil {
-			libID, _ = res.LastInsertId()
-		}
+		return 0, "movie"
 	}
-
-	return libID, mediaTypeForLibrary(dirName)
+	return libID, mediaType
 }
 
 func (s *Scanner) processFile(path string, libraryID int64, mediaType string, result *resolver.ResolveResult) {
