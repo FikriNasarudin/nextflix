@@ -21,7 +21,7 @@ import (
 	"nextflix/web"
 )
 
-const placeholderSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><rect width="300" height="450" fill="#14142b"/><circle cx="150" cy="200" r="32" fill="none" stroke="#333" stroke-width="2"/><polygon points="141,188 141,212 166,200" fill="#333"/><text x="150" y="255" fill="#444" font-family="sans-serif" font-size="11" text-anchor="middle">No Poster</text></svg>`
+const placeholderSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><rect width="300" height="450" fill="#1a1a2e"/><circle cx="150" cy="200" r="32" fill="none" stroke="#4e4351" stroke-width="2"/><polygon points="141,188 141,212 166,200" fill="#4e4351"/><text x="150" y="255" fill="#9a8c9d" font-family="sans-serif" font-size="11" text-anchor="middle">No Poster</text></svg>`
 
 type Router struct {
 	mux      *http.ServeMux

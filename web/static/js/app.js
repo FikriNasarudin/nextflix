@@ -37,6 +37,8 @@ if (loginBtn) {
       NextflixAPI.setToken(data.token);
       if (data.profiles && data.profiles.length) {
         document.getElementById('navProfile').textContent = data.profiles[0].name;
+        var avatarEl = document.getElementById('navAvatarInner');
+        if (avatarEl) avatarEl.textContent = data.profiles[0].name.charAt(0);
       }
       if (data.role === 'admin') {
         document.getElementById('btnAdmin').style.display = 'inline-block';
@@ -46,6 +48,39 @@ if (loginBtn) {
       loadAll();
     } catch(e) { document.getElementById('loginError').textContent = 'Network error'; }
   });
+
+  // Particle canvas for login background
+  (function initLoginParticles() {
+    var canvas = document.getElementById('loginCanvas');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var particles = [];
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    window.addEventListener('resize', resize);
+    resize();
+    for (var i = 0; i < 50; i++) {
+      particles.push({
+        x: Math.random() * canvas.width, y: Math.random() * canvas.height,
+        size: Math.random() * 1.5 + 0.5,
+        sx: (Math.random() - 0.5) * 0.5, sy: (Math.random() - 0.5) * 0.5,
+        opacity: Math.random() * 0.4
+      });
+    }
+    function animate() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (var i = 0; i < particles.length; i++) {
+        var p = particles[i];
+        p.x += p.sx; p.y += p.sy;
+        if (p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
+          p.x = Math.random() * canvas.width; p.y = Math.random() * canvas.height;
+        }
+        ctx.fillStyle = 'rgba(194,109,240,' + p.opacity + ')';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+      }
+      requestAnimationFrame(animate);
+    }
+    animate();
+  })();
 }
 
 /* ===== State ===== */
@@ -191,6 +226,17 @@ function renderBillboard(index) {
   const imgUrl = NextflixAPI.backdropUrl(item.backdrop_path, item.poster_path, item.id);
   backdrop.style.backgroundImage = imgUrl ? `url(${imgUrl})` : '';
   document.getElementById('heroTitle').textContent = item.title;
+
+  // Hero badges
+  var badgesEl = document.getElementById('heroBadges');
+  var badgesHtml = '';
+  var mediaLabel = item.media_type === 'tv' ? 'SERIES' : 'FEATURED';
+  badgesHtml += '<span class="hero-badge hero-badge-featured">' + mediaLabel + '</span>';
+  if (item.tags && item.tags.length) {
+    badgesHtml += '<span class="hero-badge hero-badge-genre">' + item.tags.slice(0, 2).join(' · ') + '</span>';
+  }
+  badgesEl.innerHTML = badgesHtml;
+
   const meta = [];
   if (item.media_type) meta.push(item.media_type.toUpperCase());
   if (item.rating) meta.push(item.rating);
@@ -681,6 +727,23 @@ function renderBrowsePage(params) {
       });
       return;
     default:
+      // Check for search query
+      var q = (new URLSearchParams(window.location.search)).get('q');
+      if (q) {
+        title = 'Search: ' + q;
+        var results = allMedia.filter(function(m) {
+          return m.title && m.title.toLowerCase().indexOf(q.toLowerCase()) !== -1;
+        });
+        content.innerHTML = makeGridPage(title + ' (' + results.length + ' results)');
+        if (!results.length) {
+          document.getElementById('mediaGrid').innerHTML = '<p class="empty-state">No results found</p>';
+          return;
+        }
+        results.forEach(function(m) {
+          document.getElementById('mediaGrid').appendChild(createCard(m.id, m.title, m.poster_path, 0, false));
+        });
+        return;
+      }
       title = 'Browse';
       content.innerHTML = makeGridPage(title);
   }
@@ -821,8 +884,17 @@ function createCard(id, title, poster, progressPct, isTrending, badge, itemOverr
   if (item && item.hls_path) {
     const hlsBadge = document.createElement('span');
     hlsBadge.className = 'card-badge-480p';
-    hlsBadge.textContent = 'HD';
+    hlsBadge.textContent = '4K';
     div.appendChild(hlsBadge);
+  }
+
+  // Match percentage overlay (starts on hover)
+  if (item && item.rating) {
+    var matchPct = Math.min(99, parseInt(item.rating) || 90);
+    var matchEl = document.createElement('div');
+    matchEl.className = 'card-match';
+    matchEl.textContent = matchPct + '% Match';
+    div.appendChild(matchEl);
   }
 
   if (badge) {
@@ -1324,6 +1396,12 @@ if (token) {
   hideLogin();
   loadAll();
   NextflixAPI.fetch('/auth/me').then(d => { if (d && d.role === 'admin') document.getElementById('btnAdmin').style.display = 'inline-block'; }).catch(() => {});
+  // Set avatar initial from profile name
+  var profileName = document.getElementById('navProfile').textContent;
+  if (profileName) {
+    var avatarEl = document.getElementById('navAvatarInner');
+    if (avatarEl) avatarEl.textContent = profileName.charAt(0);
+  }
 } else {
   showLogin();
 }

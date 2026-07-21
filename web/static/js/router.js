@@ -4,9 +4,10 @@ window.NextflixRouter = (function() {
   var _beforeNavigate = null
 
   function resolve(path) {
+    var pathWithoutQuery = path.split('?')[0];
     for (var i = 0; i < _routes.length; i++) {
       var route = _routes[i]
-      var match = path.match(route.regex)
+      var match = pathWithoutQuery.match(route.regex)
       if (match) {
         var params = {}
         for (var j = 0; j < route.paramNames.length; j++) {
