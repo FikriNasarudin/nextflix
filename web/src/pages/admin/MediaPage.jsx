@@ -228,12 +228,15 @@ export default function MediaPage() {
   const [expanded, setExpanded] = useState(null)
   const [filter, setFilter] = useState('all')
   const [enrichFilter, setEnrichFilter] = useState('')
+  const [error, setError] = useState(null)
 
-  const load = () => adminFetch('/media?limit=500').then(setMedia)
+  const load = () => adminFetch('/media?limit=500')
+    .then(data => { setMedia(data); setError(null) })
+    .catch(e => setError(e.message))
   useEffect(() => {
     load()
-    adminFetch('/libraries').then(setLibraries)
-    adminFetch('/tags').then(setTags)
+    adminFetch('/libraries').then(setLibraries).catch(() => {})
+    adminFetch('/tags').then(setTags).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -294,7 +297,7 @@ export default function MediaPage() {
   const staleCount = media.filter(m => m.hls_stale).length
   const filtered = media.filter(m =>
     m.title?.toLowerCase().includes(search.toLowerCase()) &&
-    (filter === 'all' || filter === 'stale' ? m.hls_stale : m.optim_status === filter) &&
+    (filter === 'all' ? true : filter === 'stale' ? !!m.hls_stale : m.optim_status === filter) &&
     (enrichFilter === '' ||
       (enrichFilter === 'missing_tmdb' ? (!m.tmdb_id) :
        enrichFilter === 'missing_overview' ? (!m.overview) :
@@ -334,6 +337,12 @@ export default function MediaPage() {
           />
         </div>
       </div>
+
+      {error && (
+        <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 'var(--radius)', background: 'rgba(229,9,20,.12)', border: '1px solid rgba(229,9,20,.3)', fontSize: '.85rem', color: '#e50914' }}>
+          Failed to load media: {error}
+        </div>
+      )}
 
       <table style={{ width: '100%', borderCollapse: 'collapse', background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
         <thead>
