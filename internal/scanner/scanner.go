@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -323,7 +324,7 @@ func (s *Scanner) Watch() {
 							libName, "", dirName,
 						)
 						log.Printf("Scanner: watching new library dir %s", event.Name)
-						return
+						continue
 					}
 				}
 
@@ -340,6 +341,12 @@ func (s *Scanner) Watch() {
 					continue
 				}
 				debounce[event.Name] = time.Now()
+
+				for k, t := range debounce {
+					if time.Since(t) > 10*time.Second {
+						delete(debounce, k)
+					}
+				}
 
 				time.AfterFunc(3*time.Second, func() {
 					libID, mediaType := s.resolveLibrary(event.Name)
@@ -362,7 +369,7 @@ func (s *Scanner) resolveLibrary(path string) (int64, string) {
 		return 0, "movie"
 	}
 	parts := strings.SplitN(rel, string(os.PathSeparator), 2)
-	if len(parts) < 1 {
+	if len(parts) < 2 {
 		return 0, "movie"
 	}
 	dirName := parts[0]
@@ -430,8 +437,12 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 
 	episodes := []ParsedMedia{parsed}
 	if parsed.EpisodeEnd > parsed.EpisodeNumber && parsed.SeasonNumber > 0 {
+		end := parsed.EpisodeEnd
+		if end - parsed.EpisodeNumber > 100 {
+			end = parsed.EpisodeNumber + 100
+		}
 		episodes = nil
-		for ep := parsed.EpisodeNumber; ep <= parsed.EpisodeEnd; ep++ {
+		for ep := parsed.EpisodeNumber; ep <= end; ep++ {
 			e := parsed
 			e.EpisodeNumber = ep
 			e.EpisodeEnd = 0
@@ -470,7 +481,11 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 		id, _ := res.LastInsertId()
 		log.Printf("Scanner: added %s (id=%d, library=%d, type=%s, duration=%ds)", title, id, libraryID, mediaType, duration)
 
-		s.encoderCh <- EncoderJob{MediaID: id, FilePath: path}
+		select {
+		case s.encoderCh <- EncoderJob{MediaID: id, FilePath: path}:
+		default:
+			log.Printf("Scanner: encoder queue full, skipping encode for media %d", id)
+		}
 
 		if !s.detectLocalImages(id, path, ep.ShowName, ep.SeasonNumber, mediaType) {
 			s.extractEmbeddedCover(id, path)
@@ -728,7 +743,7 @@ func (s *Scanner) detectSubtitles(mediaID int64, filePath string) {
 				lower := strings.ToLower(p)
 				if lower == "forced" || lower == "force" {
 					isForced = 1
-				} else if len(lower) == 2 || len(lower) == 3 {
+				} else if len(lower) == 2 || len(lower) == 3 || (len(lower) == 5 && lower[2] == '-') {
 					language = lower
 				}
 			}
@@ -764,7 +779,9 @@ func (s *Scanner) storeAudioTracks(mediaID int64, streams []ProbeStream) {
 }
 
 func probeFallbackDuration(path string) int {
-	cmd := exec.Command("ffprobe",
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffprobe",
 		"-v", "error",
 		"-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=1",
@@ -787,7 +804,9 @@ func probeFallbackDuration(path string) int {
 }
 
 func probeFile(path string) (*ProbeResult, error) {
-	cmd := exec.Command("ffprobe",
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffprobe",
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_format",

@@ -7,6 +7,10 @@ async function api(path, opts) {
   const res = await fetch(API + path, { ...opts, headers: auth() });
   if (res.status === 401) { window.location.href = '/'; return null; }
   if (res.status === 204) return null;
+  if (!res.ok) {
+    try { const err = await res.json(); toast(err.error || 'Request failed', 'error'); } catch(e) {}
+    return null;
+  }
   return res.json();
 }
 

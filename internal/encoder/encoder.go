@@ -2,6 +2,7 @@ package encoder
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -11,15 +12,16 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"nextflix/internal/config"
 	"nextflix/internal/scanner"
 )
 
 type Encoder struct {
-	db        *sql.DB
-	cfg       config.EncoderConfig
-	jobCh     <-chan scanner.EncoderJob
+	db    *sql.DB
+	cfg   config.EncoderConfig
+	jobCh <-chan scanner.EncoderJob
 }
 
 func New(db *sql.DB, cfg config.EncoderConfig, jobCh <-chan scanner.EncoderJob) *Encoder {
@@ -33,9 +35,13 @@ func (e *Encoder) Start() {
 
 func (e *Encoder) worker() {
 	for job := range e.jobCh {
-		if err := e.encode(job.MediaID, job.FilePath); err != nil {
-			log.Printf("Encoder: failed media=%d: %v", job.MediaID, err)
-		}
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Hour)
+		func() {
+			defer cancel()
+			if err := e.encode(ctx, job.MediaID, job.FilePath); err != nil {
+				log.Printf("Encoder: failed media=%d: %v", job.MediaID, err)
+			}
+		}()
 	}
 }
 
@@ -47,7 +53,7 @@ type rendition struct {
 	bufsize string
 }
 
-func (e *Encoder) encode(mediaID int64, inputPath string) error {
+func (e *Encoder) encode(ctx context.Context, mediaID int64, inputPath string) error {
 	outputDir := filepath.Join(e.cfg.HLSOutputDir, fmt.Sprintf("%d", mediaID))
 
 	if info, err := os.Stat(outputDir); err == nil && info.IsDir() {
@@ -72,7 +78,7 @@ func (e *Encoder) encode(mediaID int64, inputPath string) error {
 		r := r
 		go func() {
 			defer wg.Done()
-			segPattern := filepath.Join(outputDir, r.name+"_%03d.ts")
+			segPattern := filepath.Join(outputDir, r.name+"_%05d.ts")
 			playlist := filepath.Join(outputDir, r.name+".m3u8")
 			args := []string{
 				"-n", "19",
@@ -93,7 +99,7 @@ func (e *Encoder) encode(mediaID int64, inputPath string) error {
 				"-hls_segment_filename", segPattern,
 				playlist,
 			}
-			cmd := exec.Command("nice", args...)
+			cmd := exec.CommandContext(ctx, "nice", args...)
 			log.Printf("Encoder: encoding media=%d → %s (%s)", mediaID, r.name, r.bitrate)
 			if err := cmd.Run(); err != nil {
 				errCh <- fmt.Errorf("%s ffmpeg: %w", r.name, err)
@@ -106,12 +112,12 @@ func (e *Encoder) encode(mediaID int64, inputPath string) error {
 
 	var firstErr error
 	for err := range errCh {
+		log.Printf("Encoder: rendition error: %v", err)
 		if firstErr == nil {
 			firstErr = err
 		}
 	}
 	if firstErr != nil {
-		os.RemoveAll(outputDir)
 		return firstErr
 	}
 
@@ -130,7 +136,6 @@ func (e *Encoder) encode(mediaID int64, inputPath string) error {
 	}
 
 	if err := os.WriteFile(playlistPath, []byte(masterContent), 0644); err != nil {
-		os.RemoveAll(outputDir)
 		return fmt.Errorf("write master: %w", err)
 	}
 
@@ -152,7 +157,9 @@ func (e *Encoder) generateThumbnails(mediaID int64, inputPath, outputDir string)
 		"-of", "default=noprint_wrappers=1:nokey=1",
 		inputPath,
 	}
-	durBytes, err := exec.Command("ffprobe", durArgs...).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	durBytes, err := exec.CommandContext(ctx, "ffprobe", durArgs...).Output()
 	if err != nil {
 		log.Printf("Encoder: thumb ffprobe failed media=%d: %v", mediaID, err)
 		return
@@ -169,13 +176,21 @@ func (e *Encoder) generateThumbnails(mediaID int64, inputPath, outputDir string)
 		"-q:v", "3", "-vsync", "0", "-threads", "1",
 		"-y", spritePath,
 	}
-	cmd := exec.Command("nice", spriteArgs...)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel2()
+	cmd := exec.CommandContext(ctx2, "nice", spriteArgs...)
 	if err := cmd.Run(); err != nil {
 		log.Printf("Encoder: thumb sprite failed media=%d: %v", mediaID, err)
 		return
 	}
 
 	numFrames := int(duration) / 10
+	if numFrames == 0 {
+		return
+	}
+	if numFrames > 25 {
+		numFrames = 25
+	}
 	var vttBuf bytes.Buffer
 	vttBuf.WriteString("WEBVTT\n\n")
 	for i := 0; i < numFrames; i++ {

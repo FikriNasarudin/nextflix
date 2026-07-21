@@ -331,7 +331,7 @@ func (r *Router) mountAdmin() {
 	ch := admin.NewCollectionHandler(r.db)
 
 	a := func(h http.HandlerFunc) http.Handler {
-		return r.adminMid(r.authMid(h))
+		return r.authMid(r.adminMid(h))
 	}
 
 	adminMux := http.NewServeMux()

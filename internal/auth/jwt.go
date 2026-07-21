@@ -10,6 +10,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const (
+	jwtIssuer           = "nextflix"
+	jwtSigningAlgorithm = "HS256"
+)
+
 type Claims struct {
 	UserID    int64  `json:"user_id"`
 	ProfileID int64  `json:"profile_id"`
@@ -46,10 +51,16 @@ func (m *Manager) loadOrGenerateSecret() error {
 		return fmt.Errorf("generating jwt_secret: %w", err)
 	}
 	secretHex = hex.EncodeToString(buf)
-	if _, err := m.db.Exec(`INSERT INTO settings (key, value) VALUES ('jwt_secret', ?)`, secretHex); err != nil {
+
+	if _, err := m.db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('jwt_secret', ?)`, secretHex); err != nil {
 		return fmt.Errorf("storing jwt_secret: %w", err)
 	}
-	m.secret = []byte(secretHex)
+
+	var stored string
+	if err := m.db.QueryRow(`SELECT value FROM settings WHERE key = 'jwt_secret'`).Scan(&stored); err != nil {
+		return fmt.Errorf("reading back jwt_secret: %w", err)
+	}
+	m.secret = []byte(stored)
 	return nil
 }
 
@@ -59,6 +70,7 @@ func (m *Manager) GenerateToken(userID, profileID int64, role string) (string, e
 		ProfileID: profileID,
 		Role:      role,
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    jwtIssuer,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(72 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
@@ -69,7 +81,7 @@ func (m *Manager) GenerateToken(userID, profileID int64, role string) (string, e
 
 func (m *Manager) ValidateToken(tokenStr string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+		if t.Method.Alg() != jwtSigningAlgorithm {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return m.secret, nil

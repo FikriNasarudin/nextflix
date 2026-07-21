@@ -131,9 +131,9 @@ func parseTV(parts []string, cleaned string) (showName string, season, episode, 
 	if season == 0 && seasonDir != "" {
 		lower := strings.ToLower(seasonDir)
 		if strings.HasPrefix(lower, "season") {
-			parts2 := strings.Fields(lower)
-			if len(parts2) >= 2 {
-				if n, err := strconv.Atoi(parts2[len(parts2)-1]); err == nil {
+			re := regexp.MustCompile(`(?i)^season\s?(\d+)`)
+			if m := re.FindStringSubmatch(seasonDir); len(m) >= 2 {
+				if n, err := strconv.Atoi(m[1]); err == nil {
 					season = n
 				}
 			}
@@ -227,8 +227,11 @@ func stripQualityTags(s string) string {
 		tagLower := strings.ToLower(tag)
 		idx := strings.LastIndex(lower, tagLower)
 		if idx > 3 {
-			s = s[:idx]
-			lower = strings.ToLower(s)
+			trimmed := strings.TrimSpace(s[:idx])
+			if len(trimmed) > 0 {
+				s = trimmed
+				lower = strings.ToLower(s)
+			}
 		}
 	}
 	s = strings.TrimRight(s, " .-_")

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -16,8 +17,20 @@ import (
 	"time"
 )
 
+var (
+	hasFFprobe bool
+	hasFFmpeg  bool
+)
+
+func init() {
+	_, e1 := exec.LookPath("ffprobe")
+	hasFFprobe = e1 == nil
+	_, e2 := exec.LookPath("ffmpeg")
+	hasFFmpeg = e2 == nil
+}
+
 type StreamHandler struct {
-	db          *sql.DB
+	db           *sql.DB
 	hlsOutputDir string
 }
 
@@ -71,6 +84,11 @@ func (h *StreamHandler) Serve(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
+	if !hasFFprobe || !hasFFmpeg {
+		http.Error(w, "ffmpeg/ffprobe not available", http.StatusInternalServerError)
+		return
+	}
+
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		http.Error(w, "invalid id", http.StatusBadRequest)
@@ -88,17 +106,12 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := exec.LookPath("ffprobe"); err != nil {
-		http.Error(w, "ffprobe not available", http.StatusInternalServerError)
-		return
-	}
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		http.Error(w, "ffmpeg not available", http.StatusInternalServerError)
-		return
-	}
-
 	codec := probeVideoCodec(filePath)
-	tryCopy := codec == "h264" || codec == "hevc" || codec == ""
+	if codec == "" {
+		http.Error(w, "ffprobe failed", http.StatusInternalServerError)
+		return
+	}
+	tryCopy := codec == "h264"
 
 	var cmd *exec.Cmd
 	if tryCopy {
@@ -138,25 +151,30 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
+		stdout.Close()
 		log.Printf("Remux: start failed for id=%d: %v, stderr: %s", id, err, stderrBuf.String())
 		http.Error(w, "ffmpeg error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "video/mp4")
-	w.Header().Set("Transfer-Encoding", "chunked")
-	w.WriteHeader(http.StatusOK)
 
-	io.Copy(w, stdout)
+	n, copyErr := io.Copy(w, stdout)
 
 	if err := cmd.Wait(); err != nil {
 		log.Printf("Remux: ffmpeg failed for id=%d codec=%s tryCopy=%t: %v", id, codec, tryCopy, err)
 		log.Printf("Remux: ffmpeg stderr: %s", stderrBuf.String())
 	}
+	if copyErr != nil {
+		log.Printf("Remux: copy error for id=%d: %v (copied %d bytes)", id, copyErr, n)
+	}
 }
 
 func probeVideoCodec(filePath string) string {
-	cmd := exec.Command("ffprobe",
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ffprobe",
 		"-v", "quiet",
 		"-select_streams", "v:0",
 		"-show_entries", "stream=codec_name",
@@ -165,6 +183,7 @@ func probeVideoCodec(filePath string) string {
 	)
 	out, err := cmd.Output()
 	if err != nil {
+		log.Printf("Remux: ffprobe failed for %s: %v", filePath, err)
 		return ""
 	}
 	return strings.TrimSpace(string(out))
@@ -178,21 +197,39 @@ func (h *StreamHandler) HLSFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rest := r.PathValue("rest")
-	filePath := filepath.Join(h.hlsOutputDir, fmt.Sprintf("%d", id), rest)
-	absPath, err := filepath.Abs(filePath)
-	if err != nil {
-		http.Error(w, "invalid path", http.StatusBadRequest)
-		return
-	}
-	absBase, err := filepath.Abs(h.hlsOutputDir)
-	if err != nil || !strings.HasPrefix(absPath, absBase+string(filepath.Separator)) {
+	if rest == "" || strings.Contains(rest, "..") {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
 
-	ext := filepath.Ext(absPath)
+	absBase, err := filepath.Abs(h.hlsOutputDir)
+	if err != nil {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	absBase, err = filepath.EvalSymlinks(absBase)
+	if err != nil {
+		absBase, _ = filepath.Abs(h.hlsOutputDir)
+	}
+
+	filePath := filepath.Join(absBase, fmt.Sprintf("%d", id), rest)
+	absPath, err := filepath.EvalSymlinks(filePath)
+	if err != nil {
+		absPath, err = filepath.Abs(filePath)
+		if err != nil {
+			http.Error(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+	}
+
+	if !strings.HasPrefix(absPath, absBase+string(filepath.Separator)) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(absPath))
 	if ext == ".ts" {
-		w.Header().Set("Content-Type", "video/MP2T")
+		w.Header().Set("Content-Type", "video/mp2t")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		http.ServeFile(w, r, absPath)
 		return
@@ -204,39 +241,15 @@ func (h *StreamHandler) HLSFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		http.ServeFile(w, r, absPath)
-		return
-	}
-
-	data, err := os.ReadFile(absPath)
-	if err != nil {
-		http.Error(w, "file not found", http.StatusNotFound)
-		return
-	}
-
-	lines := strings.Split(string(data), "\n")
-	for i, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") || strings.Contains(line, "://") {
-			continue
-		}
-		if strings.Contains(line, "?") {
-			lines[i] = line + "&token=" + token
-		} else {
-			lines[i] = line + "?token=" + token
-		}
-	}
-
 	w.Header().Set("Cache-Control", "no-cache")
-	http.ServeContent(w, r, "index.m3u8", time.Time{}, strings.NewReader(strings.Join(lines, "\n")))
+	http.ServeFile(w, r, absPath)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("writeJSON: encode error: %v", err)
+	}
 }
 
 func writeError(w http.ResponseWriter, msg string, code int) {
