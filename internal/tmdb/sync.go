@@ -65,7 +65,7 @@ type searchResult struct {
 }
 
 func (s *Sync) resolveMissingTmdbIDs() error {
-	rows, err := s.db.Query(`SELECT id, title, year, media_type FROM media_items WHERE (tmdb_id IS NULL OR tmdb_id = 0) AND title != '' AND title != 'Unknown'`)
+	rows, err := s.db.Query(`SELECT id, title, year, media_type, show_name FROM media_items WHERE (tmdb_id IS NULL OR tmdb_id = 0) AND title != '' AND title != 'Unknown'`)
 	if err != nil {
 		return err
 	}
@@ -76,17 +76,22 @@ func (s *Sync) resolveMissingTmdbIDs() error {
 		Title     string
 		Year      string
 		MediaType string
+		ShowName  string
 	}
 	var missing []missingRow
 	for rows.Next() {
 		var m missingRow
-		rows.Scan(&m.ID, &m.Title, &m.Year, &m.MediaType)
+		rows.Scan(&m.ID, &m.Title, &m.Year, &m.MediaType, &m.ShowName)
 		missing = append(missing, m)
 	}
 
 	found := 0
 	for _, m := range missing {
-		id, err := s.searchTmdb(m.Title, m.Year, m.MediaType)
+		searchTitle := m.Title
+		if m.MediaType == "tv" && m.ShowName != "" {
+			searchTitle = m.ShowName
+		}
+		id, err := s.searchTmdb(searchTitle, m.Year, m.MediaType)
 		if err != nil {
 			continue
 		}
@@ -207,7 +212,7 @@ type mediaRow struct {
 }
 
 func (s *Sync) enrichMedia() error {
-	rows, err := s.db.Query(`SELECT id, tmdb_id, media_type FROM media_items WHERE tmdb_id IS NOT NULL`)
+	rows, err := s.db.Query(`SELECT id, tmdb_id, media_type FROM media_items WHERE tmdb_id IS NOT NULL AND tmdb_id != 0`)
 	if err != nil {
 		return err
 	}

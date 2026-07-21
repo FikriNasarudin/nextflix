@@ -66,10 +66,10 @@ func (h *StatsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE media_type = 'movie' AND tmdb_id IS NOT NULL`).Scan(&stats.Media.MoviesEnrichment.WithTmdbID)
+	h.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE media_type = 'movie' AND tmdb_id IS NOT NULL AND tmdb_id != 0`).Scan(&stats.Media.MoviesEnrichment.WithTmdbID)
 	h.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE media_type = 'movie' AND poster_path != ''`).Scan(&stats.Media.MoviesEnrichment.WithPoster)
 	h.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE media_type = 'movie' AND overview != ''`).Scan(&stats.Media.MoviesEnrichment.WithOverview)
-	h.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE media_type = 'tv' AND tmdb_id IS NOT NULL`).Scan(&stats.Media.TVEnrichment.WithTmdbID)
+	h.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE media_type = 'tv' AND tmdb_id IS NOT NULL AND tmdb_id != 0`).Scan(&stats.Media.TVEnrichment.WithTmdbID)
 	h.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE media_type = 'tv' AND poster_path != ''`).Scan(&stats.Media.TVEnrichment.WithPoster)
 	h.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE media_type = 'tv' AND overview != ''`).Scan(&stats.Media.TVEnrichment.WithOverview)
 

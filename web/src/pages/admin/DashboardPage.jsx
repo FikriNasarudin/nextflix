@@ -43,19 +43,21 @@ export default function DashboardPage() {
     let interval
     const poll = async () => {
       try {
-        const res = await fetch('/api/v1/admin/scan/status', {
-          headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') },
-        })
-        const data = await res.json()
-        setScanStatus(data)
-        if (!data.running) {
-          adminFetch('/stats').then(setStats)
+        const [scanData, statsData] = await Promise.all([
+          fetch('/api/v1/admin/scan/status', {
+            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') },
+          }).then(r => r.json()),
+          adminFetch('/stats'),
+        ])
+        setScanStatus(scanData)
+        if (statsData) setStats(statsData)
+        if (!scanData.running) {
           setRunningAction(null)
         }
       } catch {}
     }
     poll()
-    interval = setInterval(poll, 1500)
+    interval = setInterval(poll, 3000)
     return () => clearInterval(interval)
   }, [])
 

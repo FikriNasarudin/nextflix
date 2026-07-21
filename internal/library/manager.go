@@ -47,8 +47,12 @@ func New(db *sql.DB, cfg *config.Config, encoderCh chan<- scanner.EncoderJob) *L
 	imageCache := provider.NewImageCacheManager(cfg.Data.MetadataDir, cfg.Data.ImageCacheDir, db)
 	provMgr := provider.NewProviderManager(db, imageCache)
 
-	if cfg.Integrations.TmdbAPIKey != "" && cfg.Integrations.TmdbAPIKey != "change-me-to-a-real-key" {
-		tmdbProv := provider.NewTMDBProvider(db, cfg.Integrations.TmdbAPIKey, imageCache)
+	apiKey := cfg.Integrations.TmdbAPIKey
+	if apiKey == "" || apiKey == "change-me-to-a-real-key" {
+		db.QueryRow(`SELECT value FROM settings WHERE key = 'tmdb_api_key'`).Scan(&apiKey)
+	}
+	if apiKey != "" && apiKey != "change-me-to-a-real-key" && apiKey != "YOUR_TMDB_API_KEY_HERE" {
+		tmdbProv := provider.NewTMDBProvider(db, apiKey, imageCache)
 		provMgr.RegisterMetadata(tmdbProv)
 		log.Println("Library: TMDB provider registered")
 	} else {
