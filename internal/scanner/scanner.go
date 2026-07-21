@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -758,8 +759,11 @@ func probeFallbackDuration(path string) int {
 		"-probesize", "50M",
 		path,
 	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		log.Printf("Scanner: probe fallback duration failed %s: %s: %v", path, strings.TrimSpace(stderr.String()), err)
 		return 0
 	}
 	s := strings.TrimSpace(string(out))
@@ -785,9 +789,12 @@ func probeFile(path string) (*ProbeResult, error) {
 		path,
 	)
 
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("ffprobe: %w", err)
+		return nil, fmt.Errorf("ffprobe: %s: %w", strings.TrimSpace(stderr.String()), err)
 	}
 
 	var result ProbeResult
