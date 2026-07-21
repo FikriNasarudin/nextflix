@@ -65,6 +65,11 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		args = append(args, maxRating)
 	}
 
+	if mediaType := r.URL.Query().Get("media_type"); mediaType != "" {
+		query += ` AND mi.media_type = ?`
+		args = append(args, mediaType)
+	}
+
 	query += ` ORDER BY mi.created_at DESC`
 	args = append(args, limit, offset)
 	query += ` LIMIT ? OFFSET ?`

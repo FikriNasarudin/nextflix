@@ -93,16 +93,17 @@ let billboardItems = [];
 
 /* ===== Load All Data ===== */
 async function loadAll() {
-  const [media, progress, trending, libraries, collections, recommendations] = await Promise.all([
-    NextflixAPI.fetch('/media?limit=500'),
+  const [mediaMovies, mediaTV, progress, trending, libraries, collections, recommendations] = await Promise.all([
+    NextflixAPI.fetch('/media?limit=500&media_type=movie'),
+    NextflixAPI.fetch('/media?limit=500&media_type=tv'),
     NextflixAPI.fetch('/progress', { skipCache: true }),
     NextflixAPI.fetch('/trending'),
     NextflixAPI.fetch('/libraries'),
     NextflixAPI.fetch('/collections'),
     NextflixAPI.fetch('/recommendations'),
   ]);
-  if (!media) return;
-  allMedia = media.items || [];
+  if (!mediaMovies && !mediaTV) return;
+  allMedia = [...(mediaMovies?.items || []), ...(mediaTV?.items || [])];
   window._nextflixMedia = media.items || [];
   allLibraries = libraries || [];
   allCollections = collections || [];
