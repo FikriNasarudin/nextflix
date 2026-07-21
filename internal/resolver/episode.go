@@ -159,23 +159,42 @@ func (r *EpisodeResolver) Resolve(path string, mediaDir string) (*ResolveResult,
 
 func (r *EpisodeResolver) extractEpisodes(filename string) (season, episode, episodeEnd int) {
 	for _, mex := range r.opts.MultipleEpisodeExpressions {
-		if m := mex.FindStringSubmatch(filename); len(m) >= 3 {
-			a, _ := strconv.Atoi(m[1])
-			b, _ := strconv.Atoi(m[2])
-			c, _ := strconv.Atoi(m[3])
-			return a, b, c
+		if m := mex.FindStringSubmatch(filename); m != nil {
+			sn := parseIntOr0(m, 1)
+			en := parseIntOr0(m, 2)
+			if len(m) > 3 {
+				ee := parseIntOr0(m, 3)
+				return sn, en, ee
+			}
+			return sn, en, 0
 		}
 	}
 
 	for _, ep := range r.opts.EpisodeExpressions {
-		if m := ep.Regex.FindStringSubmatch(filename); len(m) >= 3 {
-			a, _ := strconv.Atoi(m[1])
-			b, _ := strconv.Atoi(m[2])
-			return a, b, 0
+		if m := ep.Regex.FindStringSubmatch(filename); m != nil {
+			sn := parseIntOr0(m, 1)
+			en := parseIntOr0(m, 2)
+			if sn == 0 && en > 0 {
+				return 1, en, 0
+			}
+			if sn > 0 && en > 0 {
+				return sn, en, 0
+			}
 		}
 	}
 
 	return 0, 0, 0
+}
+
+func parseIntOr0(m []string, idx int) int {
+	if idx >= len(m) || m[idx] == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(m[idx])
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func parseSeasonNumber(s string) int {
@@ -200,12 +219,11 @@ func cleanStringTitle(s string) string {
 		return ""
 	}
 	for i, w := range words {
-		runes := []rune(w)
-		if len(runes) > 0 {
-			runes[0] = []rune(strings.ToUpper(string(runes[0])))[0]
-			runes[len(runes)-1] = []rune(strings.TrimRight(string(runes), "._-"))[0]
-			words[i] = strings.ToUpper(string(runes[:1])) + strings.ToLower(string(runes[1:]))
+		if len(w) == 0 {
+			continue
 		}
+		runes := []rune(w)
+		words[i] = strings.ToUpper(string(runes[:1])) + strings.ToLower(string(runes[1:]))
 	}
 	return strings.TrimSpace(strings.Join(words, " "))
 }

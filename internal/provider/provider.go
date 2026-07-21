@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"database/sql"
+
 	"nextflix/internal/model"
 )
 
@@ -37,4 +39,5 @@ type ImageCacheManager struct {
 	CacheDir     string
 	MetadataDir  string
 	TmdbImageDir string
+	db           *sql.DB
 }

@@ -19,6 +19,7 @@ func NewImageCacheManager(metadataDir, cacheDir string, db *sql.DB) *ImageCacheM
 		MetadataDir:  metadataDir,
 		CacheDir:     cacheDir,
 		TmdbImageDir: cacheDir,
+		db:           db,
 	}
 }
 
@@ -40,6 +41,9 @@ func (m *ImageCacheManager) DownloadPoster(item *model.MediaItem) error {
 	if err := m.copyFile(cachePath, localPath); err != nil {
 		return fmt.Errorf("copy poster: %w", err)
 	}
+
+	m.db.Exec(`INSERT OR IGNORE INTO media_images (media_id, image_type, file_path, is_primary) VALUES (?, 'poster', ?, 1)`,
+		item.ID, localPath)
 
 	log.Printf("imagecache: saved poster for media %d -> %s", item.ID, localPath)
 	return nil
@@ -63,6 +67,9 @@ func (m *ImageCacheManager) DownloadBackdrop(item *model.MediaItem) error {
 	if err := m.copyFile(cachePath, localPath); err != nil {
 		return fmt.Errorf("copy backdrop: %w", err)
 	}
+
+	m.db.Exec(`INSERT OR IGNORE INTO media_images (media_id, image_type, file_path, is_primary) VALUES (?, 'backdrop', ?, 1)`,
+		item.ID, localPath)
 
 	log.Printf("imagecache: saved backdrop for media %d -> %s", item.ID, localPath)
 	return nil

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -147,7 +148,7 @@ func (p *TMDBProvider) Fetch(ctx context.Context, item *model.MediaItem) (*Metad
 		}
 	}
 
-	return &MetadataResult{
+	result := &MetadataResult{
 		Title:        title,
 		Overview:     detail.Overview,
 		Rating:       rating,
@@ -158,7 +159,28 @@ func (p *TMDBProvider) Fetch(ctx context.Context, item *model.MediaItem) (*Metad
 		PosterPath:   detail.PosterPath,
 		BackdropPath: detail.BackdropPath,
 		TrailerKey:   trailerKey,
-	}, nil
+	}
+
+	if p.imageCache != nil && tmdbID > 0 {
+		cachedItem := &model.MediaItem{
+			ID:           item.ID,
+			TmdbID:       &tmdbID,
+			PosterPath:   detail.PosterPath,
+			BackdropPath: detail.BackdropPath,
+		}
+		if detail.PosterPath != "" {
+			if err := p.imageCache.DownloadPoster(cachedItem); err != nil {
+				log.Printf("tmdb: download poster for %q: %v", item.Title, err)
+			}
+		}
+		if detail.BackdropPath != "" {
+			if err := p.imageCache.DownloadBackdrop(cachedItem); err != nil {
+				log.Printf("tmdb: download backdrop for %q: %v", item.Title, err)
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func (d *tmdbDetail) date() string {

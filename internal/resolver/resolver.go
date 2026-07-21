@@ -27,10 +27,12 @@ type IItemResolver interface {
 
 type ResolverChain struct {
 	resolvers []IItemResolver
+	opts     *NamingOptions
 }
 
 func NewResolverChain(opts *NamingOptions) *ResolverChain {
 	chain := &ResolverChain{
+		opts: opts,
 		resolvers: []IItemResolver{
 			NewEpisodeResolver(opts),
 			NewMovieResolver(opts),
@@ -43,6 +45,10 @@ func NewResolverChain(opts *NamingOptions) *ResolverChain {
 }
 
 func (c *ResolverChain) Resolve(path string, mediaDir string) (*ResolveResult, error) {
+	if c.opts.SampleFilePattern != nil && c.opts.SampleFilePattern.MatchString(path) {
+		return nil, nil
+	}
+
 	for _, resolver := range c.resolvers {
 		if !resolver.CanResolve(path) {
 			continue
