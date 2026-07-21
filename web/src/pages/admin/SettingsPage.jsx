@@ -7,7 +7,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     adminFetch('/settings').then(data => {
-      if (data?.settings) setSettings(data.settings)
+      if (data) setSettings(data)
     })
   }, [])
 
