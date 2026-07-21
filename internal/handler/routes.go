@@ -17,6 +17,7 @@ import (
 	"nextflix/internal/admin"
 	"nextflix/internal/auth"
 	"nextflix/internal/encoder"
+	"nextflix/internal/library"
 	"nextflix/internal/middleware"
 	"nextflix/internal/scanner"
 	"nextflix/web"
@@ -34,12 +35,13 @@ type Router struct {
 	authMid     func(http.Handler) http.Handler
 	adminMid    func(http.Handler) http.Handler
 	scanner     *scanner.Scanner
+	lm          *library.LibraryManager
 	scanFunc    func()
 	refreshFunc func()
 	syncFunc    func()
 }
 
-func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, mediaDir string, enc *encoder.Encoder, scn *scanner.Scanner, scanFunc func(), refreshFunc func(), syncFunc func()) *Router {
+func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, mediaDir string, enc *encoder.Encoder, lm *library.LibraryManager, scanFunc func(), refreshFunc func(), syncFunc func()) *Router {
 	r := &Router{
 		mux:         http.NewServeMux(),
 		db:          db,
@@ -49,7 +51,8 @@ func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, mediaDir string
 		encoder:     enc,
 		authMid:     middleware.Auth(authMgr),
 		adminMid:    middleware.RequireAdmin,
-		scanner:     scn,
+		scanner:     lm.Scanner(),
+		lm:          lm,
 		scanFunc:    scanFunc,
 		refreshFunc: refreshFunc,
 		syncFunc:    syncFunc,
@@ -454,7 +457,7 @@ func (r *Router) mountAdmin() {
 	uh := admin.NewUserHandler(r.db)
 	lh := admin.NewLibraryHandler(r.db, r.mediaDir)
 	th := admin.NewTagHandler(r.db)
-	mh := admin.NewMediaHandler(r.db, r.encoder)
+	mh := admin.NewMediaHandler(r.db, r.lm, r.encoder)
 	sh := admin.NewSettingsHandler(r.db)
 	ch := admin.NewCollectionHandler(r.db)
 	sth := admin.NewStatsHandler(r.db)
@@ -498,8 +501,10 @@ func (r *Router) mountAdmin() {
 	adminMux.Handle("PUT /api/v1/admin/media/{mid}/tags", a(th.SetMediaTags))
 
 	adminMux.Handle("GET /api/v1/admin/media", a(mh.List))
+	adminMux.Handle("GET /api/v1/admin/media/{id}", a(mh.Get))
 	adminMux.Handle("PUT /api/v1/admin/media/{id}", a(mh.Update))
 	adminMux.Handle("POST /api/v1/admin/media/{id}/re-encode", a(mh.Reencode))
+	adminMux.Handle("POST /api/v1/admin/media/{id}/refresh-metadata", a(mh.RefreshMetadata))
 
 	adminMux.Handle("GET /api/v1/admin/media/{id}/streams", a(eh.Streams))
 	adminMux.Handle("GET /api/v1/admin/media/{id}/optimization", a(eh.Optimization))
@@ -557,6 +562,39 @@ func (r *Router) mountAdmin() {
 			}()
 			r.refreshFunc()
 			r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('system', 'Metadata refresh complete')`)
+		}()
+		writeJSON(w, map[string]string{"status": "metadata refresh started"})
+	})))
+	adminMux.Handle("POST /api/v1/admin/refresh-metadata-missing", a(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if _, err := r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('system', 'Metadata refresh (missing) started')`); err != nil {
+			writeError(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("Metadata refresh missing: panic recovered: %v", rec)
+				}
+			}()
+			rows, err := r.db.Query(`SELECT id FROM media_items WHERE enrich_status IN ('missing','failed')`)
+			if err != nil {
+				log.Printf("Metadata refresh missing: query error: %v", err)
+				return
+			}
+			defer rows.Close()
+			var ids []int64
+			for rows.Next() {
+				var id int64
+				rows.Scan(&id)
+				ids = append(ids, id)
+			}
+			rows.Close()
+			for _, id := range ids {
+				if err := r.lm.RefreshItem(id); err != nil {
+					log.Printf("Metadata refresh missing: item %d: %v", id, err)
+				}
+			}
+			r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('system', 'Metadata refresh (missing) complete')`)
 		}()
 		writeJSON(w, map[string]string{"status": "metadata refresh started"})
 	})))

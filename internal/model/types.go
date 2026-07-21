@@ -51,6 +51,11 @@ type MediaItem struct {
 	EpisodeNumber    int     `json:"episode_number"`
 	EpisodeTitle     string  `json:"episode_title"`
 	Year             string  `json:"year"`
+	Overview         string  `json:"overview"`
+	EnrichStatus     string  `json:"enrich_status"`
+	LastEnrichedAt   string  `json:"last_enriched_at"`
+	EnrichError      string  `json:"enrich_error"`
+	ResolveAttempts  int     `json:"resolve_attempts"`
 	CreatedAt        string  `json:"created_at"`
 }
 

@@ -35,6 +35,7 @@ type OptimizationStats struct {
 	Pending     int `json:"pending"`
 	InProgress  int `json:"in_progress"`
 	Failed      int `json:"failed"`
+	Stale       int `json:"stale"`
 	TotalSize   int64 `json:"total_size_bytes"`
 	QueueLength int `json:"queue_length"`
 }
@@ -103,6 +104,7 @@ func (h *StatsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	stats.Optimization.InProgress = h.countJobs(`status = 'in_progress'`)
 	stats.Optimization.Failed = h.countJobs(`status = 'failed'`)
 	stats.Optimization.QueueLength = h.countJobs(`status = 'queued'`)
+	stats.Optimization.Stale = h.countMedia(`WHERE hls_stale = 1 AND hls_480p_path != '' AND hls_480p_path IS NOT NULL`)
 	h.db.QueryRow(`SELECT COALESCE(SUM(output_size), 0) FROM encode_jobs`).Scan(&stats.Optimization.TotalSize)
 
 	writeJSON(w, stats)

@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ type LibraryManager struct {
 	scanner   *scanner.Scanner
 	resolver  *resolver.ResolverChain
 	provider  *provider.ProviderManager
+	tmdbSync  *tmdb.Sync
 	encoderCh chan<- scanner.EncoderJob
 }
 
@@ -71,6 +73,7 @@ func New(db *sql.DB, cfg *config.Config, encoderCh chan<- scanner.EncoderJob) *L
 		scanner:   scn,
 		resolver:  resolverChain,
 		provider:  provMgr,
+		tmdbSync:  tmdb.NewSync(db),
 		encoderCh: encoderCh,
 	}
 }
@@ -138,6 +141,47 @@ func (m *LibraryManager) RefreshMetadata() {
 	}
 
 	log.Printf("Library: metadata refresh complete, processed %d items", len(items))
+}
+
+func (m *LibraryManager) RefreshItem(id int64) error {
+	ctx := context.Background()
+
+	item := &model.MediaItem{}
+	var overview string
+	err := m.db.QueryRow(`
+		SELECT id, library_id, title, media_type, tmdb_id, rating, file_path,
+			duration_seconds, trailer_youtube_id, backdrop_path, poster_path,
+			show_name, season_number, episode_number, episode_title, year, created_at, overview
+		FROM media_items WHERE id = ?`, id,
+	).Scan(
+		&item.ID, &item.LibraryID, &item.Title, &item.MediaType, &item.TmdbID,
+		&item.Rating, &item.FilePath, &item.DurationSeconds, &item.TrailerYoutubeID,
+		&item.BackdropPath, &item.PosterPath, &item.ShowName, &item.SeasonNumber,
+		&item.EpisodeNumber, &item.EpisodeTitle, &item.Year, &item.CreatedAt,
+		&overview,
+	)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("media item %d not found", id)
+	}
+	if err != nil {
+		return fmt.Errorf("load item %d: %w", id, err)
+	}
+
+	m.db.Exec(`UPDATE media_items SET overview='', poster_path='', backdrop_path='' WHERE id=?`, id)
+
+	if err := m.provider.Refresh(ctx, item); err != nil {
+		m.db.Exec(`UPDATE media_items SET enrich_status='failed', enrich_error=?, last_enriched_at=CURRENT_TIMESTAMP WHERE id=?`, err.Error(), id)
+		return fmt.Errorf("provider refresh: %w", err)
+	}
+
+	m.tmdbSync.EnrichItemByID(ctx, id)
+
+	m.db.Exec(`UPDATE media_items SET enrich_status='ok', enrich_error='', last_enriched_at=CURRENT_TIMESTAMP WHERE id=?`, id)
+	return nil
+}
+
+func (m *LibraryManager) TmdbSync() *tmdb.Sync {
+	return m.tmdbSync
 }
 
 func (m *LibraryManager) Scanner() *scanner.Scanner {

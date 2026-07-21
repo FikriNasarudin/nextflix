@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -360,6 +362,8 @@ func runVersionedMigrations(db *sql.DB) error {
 	}
 	migrations := []migration{
 		{9, migrateV9},
+		{10, migrateV10},
+		{11, migrateV11},
 	}
 	for _, m := range migrations {
 		if v < m.version {
@@ -421,6 +425,92 @@ func migrateV9(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+func migrateV10(db *sql.DB) error {
+	stmts := []string{
+		`ALTER TABLE media_items ADD COLUMN source_size INTEGER DEFAULT 0`,
+		`ALTER TABLE media_items ADD COLUMN source_mtime INTEGER DEFAULT 0`,
+		`ALTER TABLE media_items ADD COLUMN hls_stale INTEGER DEFAULT 0`,
+		`ALTER TABLE encode_jobs ADD COLUMN source_size INTEGER DEFAULT 0`,
+		`ALTER TABLE encode_jobs ADD COLUMN source_mtime INTEGER DEFAULT 0`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			if strings.Contains(err.Error(), "duplicate column") {
+				continue
+			}
+			return fmt.Errorf("v10 stmt: %w\nSQL: %s", err, s)
+		}
+	}
+
+	backfillCompletion(db)
+
+	log.Println("v10: source tracking columns added, backfill complete")
+	return nil
+}
+
+func migrateV11(db *sql.DB) error {
+	stmts := []string{
+		`ALTER TABLE media_items ADD COLUMN enrich_status TEXT DEFAULT 'pending'`,
+		`ALTER TABLE media_items ADD COLUMN last_enriched_at DATETIME DEFAULT NULL`,
+		`ALTER TABLE media_items ADD COLUMN enrich_error TEXT DEFAULT ''`,
+		`ALTER TABLE media_items ADD COLUMN resolve_attempts INTEGER DEFAULT 0`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			if strings.Contains(err.Error(), "duplicate column") {
+				continue
+			}
+			return fmt.Errorf("v11 stmt: %w\nSQL: %s", err, s)
+		}
+	}
+
+	db.Exec(`UPDATE media_items SET enrich_status = 'ok' WHERE tmdb_id IS NOT NULL AND tmdb_id != 0 AND overview != ''`)
+	db.Exec(`UPDATE media_items SET enrich_status = 'pending' WHERE tmdb_id IS NULL OR tmdb_id = 0`)
+
+	log.Println("v11: enrichment status columns added, backfill complete")
+	return nil
+}
+
+func backfillCompletion(db *sql.DB) {
+	rows, err := db.Query(`SELECT media_id, rendition, output_path FROM encode_jobs WHERE status = 'completed' AND output_path != ''`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	type job struct {
+		mediaID   int64
+		rendition string
+		dir       string
+	}
+	var jobs []job
+	for rows.Next() {
+		var j job
+		var outputPath string
+		if err := rows.Scan(&j.mediaID, &j.rendition, &outputPath); err != nil {
+			continue
+		}
+		j.dir = filepath.Dir(outputPath)
+		jobs = append(jobs, j)
+	}
+
+	for _, j := range jobs {
+		pattern := filepath.Join(j.dir, j.rendition+"_*.ts")
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		var total int64
+		for _, m := range matches {
+			info, err := os.Stat(m)
+			if err == nil {
+				total += info.Size()
+			}
+		}
+		db.Exec(`UPDATE encode_jobs SET output_size = ? WHERE media_id = ? AND rendition = ?`, total, j.mediaID, j.rendition)
+	}
 }
 
 func seedSettings(db *sql.DB, cfg *config.Config) error {

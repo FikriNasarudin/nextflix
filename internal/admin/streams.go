@@ -135,19 +135,28 @@ func (h *EncodingHandler) Optimization(w http.ResponseWriter, r *http.Request) {
 		OutputSize      int64  `json:"output_size"`
 	}
 	type optim struct {
-		HlsPath  string `json:"hls_path"`
-		IsOptimized bool `json:"is_optimized"`
-		Jobs     []job  `json:"jobs"`
-		TotalSize int64 `json:"total_size"`
+		HlsPath            string `json:"hls_path"`
+		IsOptimized        bool   `json:"is_optimized"`
+		HlsStale           bool   `json:"hls_stale"`
+		SourceMtime        int64  `json:"source_mtime"`
+		EncodedSourceMtime int64  `json:"encoded_source_mtime"`
+		Jobs               []job  `json:"jobs"`
+		TotalSize          int64  `json:"total_size"`
 	}
 
 	var resp optim
 	resp.Jobs = []job{}
 
 	var hlsPath string
-	h.db.QueryRow(`SELECT COALESCE(hls_480p_path, '') FROM media_items WHERE id = ?`, id).Scan(&hlsPath)
+	var hlsStale int
+	var srcMtime int64
+	h.db.QueryRow(`SELECT COALESCE(hls_480p_path, ''), COALESCE(hls_stale, 0), COALESCE(source_mtime, 0) FROM media_items WHERE id = ?`, id).Scan(&hlsPath, &hlsStale, &srcMtime)
 	resp.HlsPath = hlsPath
 	resp.IsOptimized = hlsPath != ""
+	resp.HlsStale = hlsStale == 1
+	resp.SourceMtime = srcMtime
+
+	h.db.QueryRow(`SELECT COALESCE(MAX(source_mtime), 0) FROM encode_jobs WHERE media_id = ? AND status = 'completed'`, id).Scan(&resp.EncodedSourceMtime)
 
 	jrows, err := h.db.Query(`
 		SELECT rendition, status, progress_percent,

@@ -1,6 +1,7 @@
 package tmdb
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,12 @@ import (
 	"strings"
 	"time"
 )
+
+var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+func HTTPClient() *http.Client {
+	return defaultHTTPClient
+}
 
 type Client struct {
 	db      *sql.DB
@@ -45,12 +52,20 @@ func (c *Client) APIKey() (string, error) {
 }
 
 func (c *Client) Get(path string, result any) error {
+	return c.GetContext(context.Background(), path, result)
+}
+
+func (c *Client) GetContext(ctx context.Context, path string, result any) error {
 	key, err := c.APIKey()
 	if err != nil {
 		return err
 	}
 
-	<-c.rate.C
+	select {
+	case <-c.rate.C:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 
 	url := c.baseURL + path
 	if strings.ContainsRune(path, '?') {
@@ -59,7 +74,12 @@ func (c *Client) Get(path string, result any) error {
 		url += "?api_key=" + key
 	}
 
-	resp, err := http.Get(url)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := defaultHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("http get %s: %w", url, err)
 	}

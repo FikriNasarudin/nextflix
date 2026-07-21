@@ -66,7 +66,11 @@ func main() {
 
 	encoderCh := make(chan scanner.EncoderJob, 100)
 	enc := encoder.New(db, cfg.Encoder, encoderCh)
-	enc.Start()
+	enc.Recover()
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	enc.Start(ctx)
 
 	lm := library.New(db, cfg, encoderCh)
 	lm.StartWatcher()
@@ -99,7 +103,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         addr(cfg.Server.Port),
-		Handler:      handler.NewRouter(db, authMgr, cfg.Encoder.HLSOutputDir, cfg.Scanner.MediaDir, enc, lm.Scanner(), scanFunc, refreshFunc, tmdbSync.Trigger),
+		Handler:      handler.NewRouter(db, authMgr, cfg.Encoder.HLSOutputDir, cfg.Scanner.MediaDir, enc, lm, scanFunc, refreshFunc, tmdbSync.Trigger),
 		ReadTimeout:  time.Duration(cfg.Server.ReadTimeoutSec) * time.Second,
 		WriteTimeout: time.Duration(cfg.Server.WriteTimeoutSec) * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -128,14 +132,12 @@ func main() {
 		log.Println("Library: metadata refresh complete")
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	log.Printf("Shutting down... (%v)", sig)
+	<-ctx.Done()
+	log.Println("Shutting down...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	srv.Shutdown(ctx)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	srv.Shutdown(shutdownCtx)
 }
 
 func addr(port int) string {

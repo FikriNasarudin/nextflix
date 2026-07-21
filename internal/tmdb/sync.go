@@ -1,12 +1,17 @@
 package tmdb
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"net/url"
+	"regexp"
+	"strings"
 	"time"
 )
+
+var yearSuffixRe = regexp.MustCompile(`\s*\(\d{4}\)\s*$`)
 
 type Sync struct {
 	db  *sql.DB
@@ -53,6 +58,12 @@ func (s *Sync) sync() {
 	log.Println("TMDB: sync complete")
 }
 
+func cleanSearchTitle(title string) string {
+	t := yearSuffixRe.ReplaceAllString(title, "")
+	t = strings.TrimSpace(t)
+	return t
+}
+
 type searchResult struct {
 	Results []struct {
 		ID           int64   `json:"id"`
@@ -65,37 +76,49 @@ type searchResult struct {
 }
 
 func (s *Sync) resolveMissingTmdbIDs() error {
-	rows, err := s.db.Query(`SELECT id, title, year, media_type, show_name FROM media_items WHERE (tmdb_id IS NULL OR tmdb_id = 0) AND title != '' AND title != 'Unknown'`)
+	rows, err := s.db.Query(`SELECT id, title, year, media_type, show_name, enrich_status, resolve_attempts, last_enriched_at FROM media_items WHERE (tmdb_id IS NULL OR tmdb_id = 0) AND title != '' AND title != 'Unknown'`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
 	type missingRow struct {
-		ID        int64
-		Title     string
-		Year      string
-		MediaType string
-		ShowName  string
+		ID              int64
+		Title           string
+		Year            string
+		MediaType       string
+		ShowName        string
+		EnrichStatus    string
+		ResolveAttempts int
+		LastEnrichedAt  string
 	}
 	var missing []missingRow
 	for rows.Next() {
 		var m missingRow
-		rows.Scan(&m.ID, &m.Title, &m.Year, &m.MediaType, &m.ShowName)
+		rows.Scan(&m.ID, &m.Title, &m.Year, &m.MediaType, &m.ShowName, &m.EnrichStatus, &m.ResolveAttempts, &m.LastEnrichedAt)
 		missing = append(missing, m)
 	}
 
 	found := 0
 	for _, m := range missing {
+		if m.EnrichStatus == "missing" && m.ResolveAttempts >= 3 {
+			s.db.Exec(`UPDATE media_items SET enrich_status='missing', resolve_attempts=resolve_attempts+1 WHERE id=?`, m.ID)
+			continue
+		}
+
 		searchTitle := m.Title
 		if m.MediaType == "tv" && m.ShowName != "" {
 			searchTitle = m.ShowName
 		}
+		searchTitle = cleanSearchTitle(searchTitle)
+
 		id, err := s.searchTmdb(searchTitle, m.Year, m.MediaType)
 		if err != nil {
+			log.Printf("TMDB: resolve miss id=%d title=%q year=%q err=%v", m.ID, m.Title, m.Year, err)
+			s.db.Exec(`UPDATE media_items SET resolve_attempts = resolve_attempts + 1, enrich_status='missing', enrich_error=?, last_enriched_at=CURRENT_TIMESTAMP WHERE id=?`, err.Error(), m.ID)
 			continue
 		}
-		s.db.Exec(`UPDATE media_items SET tmdb_id = ? WHERE id = ?`, id, m.ID)
+		s.db.Exec(`UPDATE media_items SET tmdb_id = ?, enrich_status='ok', enrich_error='', resolve_attempts=0, last_enriched_at=CURRENT_TIMESTAMP WHERE id=?`, id, m.ID)
 		found++
 	}
 
@@ -212,7 +235,7 @@ type mediaRow struct {
 }
 
 func (s *Sync) enrichMedia() error {
-	rows, err := s.db.Query(`SELECT id, tmdb_id, media_type FROM media_items WHERE tmdb_id IS NOT NULL AND tmdb_id != 0`)
+	rows, err := s.db.Query(`SELECT id, tmdb_id, media_type FROM media_items WHERE tmdb_id IS NOT NULL AND tmdb_id != 0 AND (overview = '' OR overview IS NULL OR poster_path = '' OR poster_path IS NULL)`)
 	if err != nil {
 		return err
 	}
@@ -281,10 +304,12 @@ type videosResponse struct {
 }
 
 func (s *Sync) enrichItem(m mediaRow) {
+	ctx := context.Background()
 	detailPath := fmt.Sprintf("/%s/%d", mediaTypePath(m.MediaType), m.TmdbID)
 	var detail detailResponse
-	if err := s.cli.Get(detailPath, &detail); err != nil {
+	if err := s.cli.GetContext(ctx, detailPath, &detail); err != nil {
 		log.Printf("TMDB: detail %s: %v", detailPath, err)
+		s.db.Exec(`UPDATE media_items SET enrich_status='failed', enrich_error=?, last_enriched_at=CURRENT_TIMESTAMP WHERE id=?`, err.Error(), m.ID)
 		return
 	}
 
@@ -316,7 +341,7 @@ func (s *Sync) enrichItem(m mediaRow) {
 	ratingPath := fmt.Sprintf("/%s/%d/release_dates", mediaTypePath(m.MediaType), m.TmdbID)
 	if m.MediaType == "movie" {
 		var rd releaseDatesResponse
-		if err := s.cli.Get(ratingPath, &rd); err == nil {
+		if err := s.cli.GetContext(ctx, ratingPath, &rd); err == nil {
 			for _, r := range rd.Results {
 				if r.ISO3166_1 == "US" && len(r.ReleaseDates) > 0 {
 					if cert := r.ReleaseDates[0].Certification; cert != "" {
@@ -328,7 +353,7 @@ func (s *Sync) enrichItem(m mediaRow) {
 		}
 	} else {
 		var cr contentRatingsResponse
-		if err := s.cli.Get(fmt.Sprintf("/tv/%d/content_ratings", m.TmdbID), &cr); err == nil {
+		if err := s.cli.GetContext(ctx, fmt.Sprintf("/tv/%d/content_ratings", m.TmdbID), &cr); err == nil {
 			for _, r := range cr.Results {
 				if r.ISO3166_1 == "US" && r.Rating != "" {
 					s.db.Exec(`UPDATE media_items SET rating = ? WHERE id = ?`, r.Rating, m.ID)
@@ -340,7 +365,7 @@ func (s *Sync) enrichItem(m mediaRow) {
 
 	videosPath := fmt.Sprintf("/%s/%d/videos", mediaTypePath(m.MediaType), m.TmdbID)
 	var vv videosResponse
-	if err := s.cli.Get(videosPath, &vv); err == nil {
+	if err := s.cli.GetContext(ctx, videosPath, &vv); err == nil {
 		for _, v := range vv.Results {
 			if v.Site == "YouTube" && v.Type == "Trailer" && v.Official {
 				s.db.Exec(`UPDATE media_items SET trailer_youtube_id = ? WHERE id = ?`, v.Key, m.ID)
@@ -372,6 +397,45 @@ func (s *Sync) enrichItem(m mediaRow) {
 			}
 		}
 	}
+
+	s.db.Exec(`UPDATE media_items SET enrich_status='ok', enrich_error='', last_enriched_at=CURRENT_TIMESTAMP WHERE id=?`, m.ID)
+}
+
+func (s *Sync) EnrichItemByID(ctx context.Context, id int64) error {
+	var m struct {
+		ID        int64
+		TmdbID    int64
+		MediaType string
+	}
+	err := s.db.QueryRow(`SELECT id, COALESCE(tmdb_id, 0), media_type FROM media_items WHERE id = ?`, id).Scan(&m.ID, &m.TmdbID, &m.MediaType)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("media item %d not found", id)
+	}
+	if err != nil {
+		return fmt.Errorf("loading media item %d: %w", id, err)
+	}
+
+	if m.TmdbID == 0 {
+		var title, year, mediaType, showName string
+		s.db.QueryRow(`SELECT title, year, media_type, show_name FROM media_items WHERE id = ?`, id).Scan(&title, &year, &mediaType, &showName)
+		searchTitle := title
+		if mediaType == "tv" && showName != "" {
+			searchTitle = showName
+		}
+		searchTitle = cleanSearchTitle(searchTitle)
+
+		tmdbID, err := s.searchTmdb(searchTitle, year, mediaType)
+		if err != nil {
+			s.db.Exec(`UPDATE media_items SET resolve_attempts=resolve_attempts+1, enrich_status='missing', enrich_error=?, last_enriched_at=CURRENT_TIMESTAMP WHERE id=?`, err.Error(), id)
+			return fmt.Errorf("search tmdb for id=%d: %w", id, err)
+		}
+		s.db.Exec(`UPDATE media_items SET tmdb_id=?, enrich_status='pending', enrich_error='', resolve_attempts=0 WHERE id=?`, tmdbID, id)
+		m.TmdbID = tmdbID
+	}
+
+	s.db.Exec(`UPDATE media_items SET overview='', poster_path='', backdrop_path='' WHERE id=?`, id)
+	s.enrichItem(mediaRow{ID: id, TmdbID: m.TmdbID, MediaType: m.MediaType})
+	return nil
 }
 
 func mediaTypePath(t string) string {

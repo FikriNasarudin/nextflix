@@ -436,11 +436,38 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string, re
 		log.Printf("Scanner: failed to resolve abs path %s: %v", path, err)
 	}
 
+	fi, statErr := os.Stat(path)
+	srcSize := int64(0)
+	srcMtime := int64(0)
+	if statErr == nil {
+		srcSize = fi.Size()
+		srcMtime = fi.ModTime().Unix()
+	}
+
 	var existingID int64
 	var existingDur int
 	s.db.QueryRow(`SELECT id, duration_seconds FROM media_items WHERE file_path = ?`, path).Scan(&existingID, &existingDur)
-	if existingID > 0 && existingDur > 0 {
-		return
+
+	if existingID > 0 {
+		var dbSize, dbMtime int64
+		var hlsPath string
+		s.db.QueryRow(`SELECT COALESCE(source_size,0), COALESCE(source_mtime,0), COALESCE(hls_480p_path,'') FROM media_items WHERE id = ?`, existingID).Scan(&dbSize, &dbMtime, &hlsPath)
+
+		if dbSize != srcSize || dbMtime != srcMtime {
+			if dbSize != 0 || dbMtime != 0 {
+				s.db.Exec(`UPDATE media_items SET source_size = ?, source_mtime = ? WHERE id = ?`, srcSize, srcMtime, existingID)
+				if hlsPath != "" {
+					s.db.Exec(`UPDATE media_items SET hls_stale = 1 WHERE id = ?`, existingID)
+					log.Printf("Scanner: source changed for media=%d, marked HLS stale", existingID)
+				}
+			} else if statErr == nil {
+				s.db.Exec(`UPDATE media_items SET source_size = ?, source_mtime = ? WHERE id = ?`, srcSize, srcMtime, existingID)
+			}
+		}
+
+		if existingDur > 0 {
+			return
+		}
 	}
 
 	probeResult, err := probeFile(path)
@@ -524,11 +551,11 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string, re
 		var insertArgs []any
 
 		if libraryID > 0 {
-			insertSQL = `INSERT INTO media_items (library_id, title, file_path, duration_seconds, media_type, show_name, season_number, episode_number, episode_title, year, tmdb_id, group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-			insertArgs = []any{libraryID, ep.title, path, duration, mediaType, ep.showName, ep.seasonNumber, ep.episodeNumber, ep.episodeTitle, year, tmdbID, groupID}
+			insertSQL = `INSERT INTO media_items (library_id, title, file_path, duration_seconds, media_type, show_name, season_number, episode_number, episode_title, year, tmdb_id, group_id, source_size, source_mtime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			insertArgs = []any{libraryID, ep.title, path, duration, mediaType, ep.showName, ep.seasonNumber, ep.episodeNumber, ep.episodeTitle, year, tmdbID, groupID, srcSize, srcMtime}
 		} else {
-			insertSQL = `INSERT INTO media_items (title, file_path, duration_seconds, media_type, show_name, season_number, episode_number, episode_title, year, tmdb_id, group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-			insertArgs = []any{ep.title, path, duration, mediaType, ep.showName, ep.seasonNumber, ep.episodeNumber, ep.episodeTitle, year, tmdbID, groupID}
+			insertSQL = `INSERT INTO media_items (title, file_path, duration_seconds, media_type, show_name, season_number, episode_number, episode_title, year, tmdb_id, group_id, source_size, source_mtime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			insertArgs = []any{ep.title, path, duration, mediaType, ep.showName, ep.seasonNumber, ep.episodeNumber, ep.episodeTitle, year, tmdbID, groupID, srcSize, srcMtime}
 		}
 
 		res, err := s.db.Exec(insertSQL, insertArgs...)

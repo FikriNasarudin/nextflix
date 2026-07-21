@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"nextflix/internal/config"
@@ -21,29 +22,63 @@ import (
 )
 
 type Encoder struct {
-	db    *sql.DB
-	cfg   config.EncoderConfig
-	jobCh chan scanner.EncoderJob
+	db     *sql.DB
+	cfg    config.EncoderConfig
+	jobCh  chan scanner.EncoderJob
+	ctx    context.Context
+	cancel context.CancelFunc
+	running int32
 }
 
 func New(db *sql.DB, cfg config.EncoderConfig, jobCh chan scanner.EncoderJob) *Encoder {
 	return &Encoder{db: db, cfg: cfg, jobCh: jobCh}
 }
 
-func (e *Encoder) Start() {
+func (e *Encoder) Start(ctx context.Context) {
+	e.ctx, e.cancel = context.WithCancel(ctx)
+	atomic.StoreInt32(&e.running, 1)
 	go e.worker()
 	log.Println("Encoder: worker started")
 }
 
+func (e *Encoder) Stop() {
+	if atomic.CompareAndSwapInt32(&e.running, 1, 0) {
+		e.cancel()
+	}
+}
+
+func (e *Encoder) Recover() {
+	res, _ := e.db.Exec(
+		`UPDATE encode_jobs SET status = 'failed', error = 'interrupted by shutdown', finished_at = CURRENT_TIMESTAMP, progress_percent = 0 WHERE status IN ('queued', 'in_progress')`,
+	)
+	n, _ := res.RowsAffected()
+	if n > 0 {
+		log.Printf("Encoder: recovered %d stale encode jobs (set to failed)", n)
+	}
+}
+
 func (e *Encoder) worker() {
-	for job := range e.jobCh {
-		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Hour)
-		func() {
-			defer cancel()
-			if err := e.encode(ctx, job); err != nil {
-				log.Printf("Encoder: failed media=%d: %v", job.MediaID, err)
+	for {
+		select {
+		case job, ok := <-e.jobCh:
+			if !ok {
+				return
 			}
-		}()
+			select {
+			case <-e.ctx.Done():
+				return
+			default:
+			}
+			func() {
+				ctx, cancel := context.WithTimeout(e.ctx, 4*time.Hour)
+				defer cancel()
+				if err := e.encode(ctx, job); err != nil {
+					log.Printf("Encoder: failed media=%d: %v", job.MediaID, err)
+				}
+			}()
+		case <-e.ctx.Done():
+			return
+		}
 	}
 }
 
@@ -100,20 +135,60 @@ func (e *Encoder) updateJob(mediaID int64, renditionName, status string, progres
 	}
 }
 
+func (e *Encoder) isAlreadyEncoded(mediaID int64) bool {
+	var hlsPath string
+	e.db.QueryRow(`SELECT COALESCE(hls_480p_path, '') FROM media_items WHERE id = ?`, mediaID).Scan(&hlsPath)
+	if hlsPath == "" {
+		return false
+	}
+	var completed int
+	e.db.QueryRow(`SELECT COUNT(*) FROM encode_jobs WHERE media_id = ? AND status = 'completed' AND rendition IN ('480p', '1080p')`, mediaID).Scan(&completed)
+	return completed == 2
+}
+
+func globSize(pattern string) int64 {
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return 0
+	}
+	var total int64
+	for _, m := range matches {
+		info, err := os.Stat(m)
+		if err == nil {
+			total += info.Size()
+		}
+	}
+	return total
+}
+
 func (e *Encoder) encode(ctx context.Context, job scanner.EncoderJob) error {
 	outputDir := filepath.Join(e.cfg.HLSOutputDir, fmt.Sprintf("%d", job.MediaID))
 
-	info, err := os.Stat(outputDir)
-	if err == nil && info.IsDir() {
-		log.Printf("Encoder: HLS already exists for media=%d, skipping", job.MediaID)
-		return nil
+	if e.isAlreadyEncoded(job.MediaID) {
+		info, err := os.Stat(outputDir)
+		if err == nil && info.IsDir() {
+			log.Printf("Encoder: HLS already exists for media=%d, skipping", job.MediaID)
+			return nil
+		}
 	}
 
+	if err := os.RemoveAll(outputDir); err != nil {
+		log.Printf("Encoder: failed to clean HLS dir for media=%d: %v", job.MediaID, err)
+	}
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
 	e.ensureJobRows(job.MediaID)
+
+	srcStat, err := os.Stat(job.FilePath)
+	srcSize := int64(0)
+	srcMtime := int64(0)
+	if err == nil {
+		srcSize = srcStat.Size()
+		srcMtime = srcStat.ModTime().Unix()
+	}
+	e.db.Exec(`UPDATE media_items SET source_size = ?, source_mtime = ? WHERE id = ?`, srcSize, srcMtime, job.MediaID)
 
 	totalDuration := job.DurationSeconds
 	if totalDuration <= 0 {
@@ -131,7 +206,10 @@ func (e *Encoder) encode(ctx context.Context, job scanner.EncoderJob) error {
 		go func() {
 			defer wg.Done()
 			if err := e.encodeRendition(ctx, job.MediaID, job.FilePath, outputDir, r, totalDuration); err != nil {
-				errCh <- fmt.Errorf("%s: %w", r.name, err)
+				select {
+				case errCh <- fmt.Errorf("%s: %w", r.name, err):
+				default:
+				}
 			}
 		}()
 	}
@@ -148,6 +226,11 @@ func (e *Encoder) encode(ctx context.Context, job scanner.EncoderJob) error {
 	}
 	if firstErr != nil {
 		return firstErr
+	}
+
+	if ctx.Err() != nil {
+		e.db.Exec(`UPDATE encode_jobs SET status = 'failed', error = 'interrupted by shutdown', finished_at = CURRENT_TIMESTAMP WHERE media_id = ? AND status = 'in_progress'`, job.MediaID)
+		return ctx.Err()
 	}
 
 	playlistPath := filepath.Join(outputDir, "index.m3u8")
@@ -168,9 +251,13 @@ func (e *Encoder) encode(ctx context.Context, job scanner.EncoderJob) error {
 		return fmt.Errorf("write master: %w", err)
 	}
 
-	totalSize := e.dirSize(outputDir)
-	e.db.Exec(`UPDATE media_items SET hls_480p_path = ? WHERE id = ?`, playlistPath, job.MediaID)
-	e.db.Exec(`UPDATE encode_jobs SET output_path = ?, output_size = ? WHERE media_id = ?`, playlistPath, totalSize, job.MediaID)
+	for _, r := range renditions {
+		size := globSize(filepath.Join(outputDir, r.name+"_*.ts"))
+		e.db.Exec(`UPDATE encode_jobs SET output_path = ?, output_size = ?, source_size = ?, source_mtime = ? WHERE media_id = ? AND rendition = ?`,
+			playlistPath, size, srcSize, srcMtime, job.MediaID, r.name)
+	}
+
+	e.db.Exec(`UPDATE media_items SET hls_480p_path = ?, hls_stale = 0 WHERE id = ?`, playlistPath, job.MediaID)
 
 	log.Printf("Encoder: complete media=%d → %s (480p + 1080p ABR)", job.MediaID, playlistPath)
 
@@ -214,16 +301,20 @@ func (e *Encoder) encodeRendition(ctx context.Context, mediaID int64, inputPath,
 	log.Printf("Encoder: encoding media=%d → %s (%s)", mediaID, r.name, r.bitrate)
 
 	if err := cmd.Start(); err != nil {
+		if ctx.Err() != nil {
+			e.updateJob(mediaID, r.name, "failed", 0, "interrupted by shutdown")
+			return ctx.Err()
+		}
 		e.updateJob(mediaID, r.name, "failed", 0, fmt.Sprintf("start: %v", err))
 		return err
 	}
 
 	lastPct := -1
 	go func() {
-		scanner := bufio.NewScanner(stderr)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text()
+		s := bufio.NewScanner(stderr)
+		s.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for s.Scan() {
+			line := s.Text()
 			if totalDuration <= 0 {
 				continue
 			}
@@ -244,6 +335,10 @@ func (e *Encoder) encodeRendition(ctx context.Context, mediaID int64, inputPath,
 	}()
 
 	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			e.updateJob(mediaID, r.name, "failed", lastPct, "interrupted by shutdown")
+			return ctx.Err()
+		}
 		e.updateJob(mediaID, r.name, "failed", lastPct, err.Error())
 		return err
 	}
@@ -252,28 +347,10 @@ func (e *Encoder) encodeRendition(ctx context.Context, mediaID int64, inputPath,
 	return nil
 }
 
-func (e *Encoder) dirSize(path string) int64 {
-	var total int64
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return 0
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			total += e.dirSize(filepath.Join(path, entry.Name()))
-			continue
-		}
-		info, err := entry.Info()
-		if err == nil {
-			total += info.Size()
-		}
-	}
-	return total
-}
-
 func (e *Encoder) Enqueue(job scanner.EncoderJob) error {
 	e.ensureJobRows(job.MediaID)
 	e.db.Exec(`UPDATE encode_jobs SET status = 'queued', progress_percent = 0, error = '', started_at = NULL, finished_at = NULL WHERE media_id = ?`, job.MediaID)
+	e.db.Exec(`UPDATE media_items SET hls_stale = 0 WHERE id = ?`, job.MediaID)
 
 	select {
 	case e.jobCh <- job:
@@ -285,9 +362,7 @@ func (e *Encoder) Enqueue(job scanner.EncoderJob) error {
 
 func (e *Encoder) Reenqueue(mediaID int64, filePath string, durationSeconds int64) error {
 	outputDir := filepath.Join(e.cfg.HLSOutputDir, fmt.Sprintf("%d", mediaID))
-	if err := os.RemoveAll(outputDir); err != nil {
-		log.Printf("Encoder: failed to clear HLS dir for media=%d: %v", mediaID, err)
-	}
+	os.RemoveAll(outputDir)
 	e.db.Exec(`UPDATE media_items SET hls_480p_path = '' WHERE id = ?`, mediaID)
 	e.db.Exec(`UPDATE encode_jobs SET status = 'failed', error = 'superseded' WHERE media_id = ? AND status IN ('queued','in_progress')`, mediaID)
 
@@ -304,7 +379,7 @@ type QueueItem struct {
 	Status           string `json:"status"`
 	ProgressPercent  int    `json:"progress_percent"`
 	StartedAt        string `json:"started_at"`
-	FinishedAt      string `json:"finished_at"`
+	FinishedAt       string `json:"finished_at"`
 	Error            string `json:"error"`
 	OutputPath       string `json:"output_path"`
 	OutputSize       int64  `json:"output_size"`

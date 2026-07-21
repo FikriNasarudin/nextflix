@@ -124,6 +124,10 @@ export default function DashboardPage() {
           <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Optimized</div>
         </div>
         <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: '#ff9800' }}>{stats?.optimization?.stale || 0}</div>
+          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Stale</div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
           <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--muted)' }}>{stats?.optimization?.pending || 0}</div>
           <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Pending</div>
         </div>
@@ -178,6 +182,9 @@ export default function DashboardPage() {
           </button>
           <button className="btn btn-primary" onClick={triggerSync} disabled={!!runningAction}>
             {runningAction === 'sync' ? 'Syncing...' : 'Full TMDB Sync'}
+          </button>
+          <button className="btn btn-primary" onClick={async () => { setRunningAction('refresh-missing'); await adminFetch('/refresh-metadata-missing', { method: 'POST' }) }} disabled={!!runningAction} style={{ background: '#ff9800' }}>
+            {runningAction === 'refresh-missing' ? 'Refreshing...' : 'Retry Missing'}
           </button>
         </div>
 

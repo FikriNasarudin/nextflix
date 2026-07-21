@@ -80,7 +80,7 @@ func NewTMDBProvider(db *sql.DB, tmdbClient *tmdb.Client, imageCache *ImageCache
 	return &TMDBProvider{
 		db:         db,
 		tmdbClient: tmdbClient,
-		httpClient: &http.Client{},
+		httpClient: tmdb.HTTPClient(),
 		imageCache: imageCache,
 	}
 }
