@@ -16,6 +16,7 @@ import (
 
 	"nextflix/internal/admin"
 	"nextflix/internal/auth"
+	"nextflix/internal/encoder"
 	"nextflix/internal/middleware"
 	"nextflix/internal/scanner"
 	"nextflix/web"
@@ -29,6 +30,7 @@ type Router struct {
 	authMgr     *auth.Manager
 	hlsDir      string
 	mediaDir    string
+	encoder     *encoder.Encoder
 	authMid     func(http.Handler) http.Handler
 	adminMid    func(http.Handler) http.Handler
 	scanner     *scanner.Scanner
@@ -37,13 +39,14 @@ type Router struct {
 	syncFunc    func()
 }
 
-func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, mediaDir string, scn *scanner.Scanner, scanFunc func(), refreshFunc func(), syncFunc func()) *Router {
+func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, mediaDir string, enc *encoder.Encoder, scn *scanner.Scanner, scanFunc func(), refreshFunc func(), syncFunc func()) *Router {
 	r := &Router{
 		mux:         http.NewServeMux(),
 		db:          db,
 		authMgr:     authMgr,
 		hlsDir:      hlsDir,
 		mediaDir:    mediaDir,
+		encoder:     enc,
 		authMid:     middleware.Auth(authMgr),
 		adminMid:    middleware.RequireAdmin,
 		scanner:     scn,
@@ -451,10 +454,11 @@ func (r *Router) mountAdmin() {
 	uh := admin.NewUserHandler(r.db)
 	lh := admin.NewLibraryHandler(r.db, r.mediaDir)
 	th := admin.NewTagHandler(r.db)
-	mh := admin.NewMediaHandler(r.db)
+	mh := admin.NewMediaHandler(r.db, r.encoder)
 	sh := admin.NewSettingsHandler(r.db)
 	ch := admin.NewCollectionHandler(r.db)
 	sth := admin.NewStatsHandler(r.db)
+	eh := admin.NewEncodingHandler(r.db, r.encoder)
 
 	a := func(h http.HandlerFunc) http.Handler {
 		return r.authMid(r.adminMid(h))
@@ -496,6 +500,11 @@ func (r *Router) mountAdmin() {
 	adminMux.Handle("GET /api/v1/admin/media", a(mh.List))
 	adminMux.Handle("PUT /api/v1/admin/media/{id}", a(mh.Update))
 	adminMux.Handle("POST /api/v1/admin/media/{id}/re-encode", a(mh.Reencode))
+
+	adminMux.Handle("GET /api/v1/admin/media/{id}/streams", a(eh.Streams))
+	adminMux.Handle("GET /api/v1/admin/media/{id}/optimization", a(eh.Optimization))
+
+	adminMux.Handle("GET /api/v1/admin/encoder/queue", a(eh.Queue))
 
 	adminMux.Handle("GET /api/v1/admin/settings", a(sh.List))
 	adminMux.Handle("PUT /api/v1/admin/settings", a(sh.Update))

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 
 	"nextflix/internal/config"
 
@@ -324,7 +326,100 @@ func Migrate(db *sql.DB, cfg *config.Config) error {
 	db.Exec(`UPDATE libraries SET media_type = 'movie'
 		WHERE LOWER(library_dir) IN ('movies', 'movie', 'films', 'film', 'moviess', 'mmovies')`)
 
+	if err := runVersionedMigrations(db); err != nil {
+		return fmt.Errorf("versioned migrations: %w", err)
+	}
+
 	log.Println("Database migrations complete")
+	return nil
+}
+
+func schemaVersion(db *sql.DB) int {
+	var s string
+	if err := db.QueryRow(`SELECT value FROM settings WHERE key = 'schema_version'`).Scan(&s); err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func setSchemaVersion(db *sql.DB, v int) {
+	db.Exec(`INSERT INTO settings (key, value) VALUES ('schema_version', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, fmt.Sprintf("%d", v))
+}
+
+func runVersionedMigrations(db *sql.DB) error {
+	v := schemaVersion(db)
+
+	type migration struct {
+		version int
+		fn      func(*sql.DB) error
+	}
+	migrations := []migration{
+		{9, migrateV9},
+	}
+	for _, m := range migrations {
+		if v < m.version {
+			if err := m.fn(db); err != nil {
+				return fmt.Errorf("migration v%d: %w", m.version, err)
+			}
+			setSchemaVersion(db, m.version)
+			log.Printf("Database: migration v%d applied", m.version)
+		}
+	}
+	return nil
+}
+
+func migrateV9(db *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS media_video_tracks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			media_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+			codec TEXT NOT NULL DEFAULT '',
+			width INTEGER NOT NULL DEFAULT 0,
+			height INTEGER NOT NULL DEFAULT 0,
+			stream_index INTEGER NOT NULL DEFAULT 0,
+			profile TEXT DEFAULT '',
+			bit_rate TEXT DEFAULT '',
+			frame_rate TEXT DEFAULT '',
+			color_transfer TEXT DEFAULT '',
+			is_hdr INTEGER NOT NULL DEFAULT 0,
+			is_default INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_video_tracks_media ON media_video_tracks(media_id)`,
+
+		`ALTER TABLE media_subtitles ADD COLUMN stream_index INTEGER DEFAULT -1`,
+		`ALTER TABLE media_subtitles ADD COLUMN is_default INTEGER DEFAULT 0`,
+
+		`CREATE TABLE IF NOT EXISTS encode_jobs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			media_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+			rendition TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'queued',
+			progress_percent INTEGER NOT NULL DEFAULT 0,
+			started_at DATETIME DEFAULT NULL,
+			finished_at DATETIME DEFAULT NULL,
+			error TEXT DEFAULT '',
+			output_path TEXT DEFAULT '',
+			output_size INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(media_id, rendition)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_encode_jobs_status ON encode_jobs(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_encode_jobs_media ON encode_jobs(media_id)`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			if strings.Contains(err.Error(), "duplicate column") {
+				continue
+			}
+			return fmt.Errorf("v9 stmt: %w\nSQL: %s", err, s)
+		}
+	}
 	return nil
 }
 

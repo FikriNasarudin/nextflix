@@ -30,10 +30,20 @@ type MediaCounts struct {
 	TVEnrichment      EnrichmentInfo `json:"tv_enrichment"`
 }
 
+type OptimizationStats struct {
+	Optimized  int `json:"optimized"`
+	Pending     int `json:"pending"`
+	InProgress  int `json:"in_progress"`
+	Failed      int `json:"failed"`
+	TotalSize   int64 `json:"total_size_bytes"`
+	QueueLength int `json:"queue_length"`
+}
+
 type Stats struct {
-	Media     MediaCounts `json:"media"`
-	Users     int         `json:"users"`
-	Libraries int         `json:"libraries"`
+	Media         MediaCounts       `json:"media"`
+	Users         int               `json:"users"`
+	Libraries     int               `json:"libraries"`
+	Optimization  OptimizationStats `json:"optimization"`
 }
 
 func (h *StatsHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -88,5 +98,24 @@ func (h *StatsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	stats.Optimization.Optimized = h.countMedia(`WHERE hls_480p_path != '' AND hls_480p_path IS NOT NULL`)
+	stats.Optimization.Pending = h.countMedia(`WHERE (hls_480p_path = '' OR hls_480p_path IS NULL)`)
+	stats.Optimization.InProgress = h.countJobs(`status = 'in_progress'`)
+	stats.Optimization.Failed = h.countJobs(`status = 'failed'`)
+	stats.Optimization.QueueLength = h.countJobs(`status = 'queued'`)
+	h.db.QueryRow(`SELECT COALESCE(SUM(output_size), 0) FROM encode_jobs`).Scan(&stats.Optimization.TotalSize)
+
 	writeJSON(w, stats)
+}
+
+func (h *StatsHandler) countMedia(where string) int {
+	var c int
+	h.db.QueryRow(`SELECT COUNT(*) FROM media_items ` + where).Scan(&c)
+	return c
+}
+
+func (h *StatsHandler) countJobs(where string) int {
+	var c int
+	h.db.QueryRow(`SELECT COUNT(DISTINCT media_id) FROM encode_jobs WHERE ` + where).Scan(&c)
+	return c
 }

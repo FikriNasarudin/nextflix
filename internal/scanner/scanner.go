@@ -35,10 +35,35 @@ type ProbeStream struct {
 	Height    int    `json:"height"`
 	Index     int    `json:"index"`
 	Channels  int    `json:"channels"`
+	Profile   string `json:"profile"`
+	BitRate   string `json:"bit_rate"`
 	Tags      struct {
-		Language string `json:"language"`
-		Title    string `json:"title"`
+		Language      string `json:"language"`
+		Title         string `json:"title"`
+		RFrameRate    string `json:"r_frame_rate"`
+		ColorTransfer string `json:"color_transfer"`
 	} `json:"tags"`
+}
+
+func (s ProbeStream) IsHDR() bool {
+	ct := strings.ToLower(s.Tags.ColorTransfer)
+	return strings.Contains(ct, "smpte2084") || strings.Contains(ct, "arib-std-b67") || s.Profile == "High 10"
+}
+
+func (s ProbeStream) FrameRate() string {
+	r := s.Tags.RFrameRate
+	if r == "" || r == "0/0" {
+		return ""
+	}
+	parts := strings.SplitN(r, "/", 2)
+	if len(parts) == 2 {
+		num, err := strconv.ParseFloat(parts[0], 64)
+		den, err2 := strconv.ParseFloat(parts[1], 64)
+		if err == nil && err2 == nil && den != 0 {
+			return fmt.Sprintf("%.2f", num/den)
+		}
+	}
+	return r
 }
 
 type ProbeResult struct {
@@ -50,8 +75,9 @@ type ProbeResult struct {
 }
 
 type EncoderJob struct {
-	MediaID  int64
-	FilePath string
+	MediaID          int64
+	FilePath         string
+	DurationSeconds  int64
 }
 
 type ScanProgress struct {
@@ -516,7 +542,7 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string, re
 
 		if s.encoderCh != nil {
 			select {
-			case s.encoderCh <- EncoderJob{MediaID: id, FilePath: path}:
+			case s.encoderCh <- EncoderJob{MediaID: id, FilePath: path, DurationSeconds: int64(duration)}:
 			default:
 				log.Printf("Scanner: encoder queue full, skipping encode for media %d", id)
 			}
@@ -528,6 +554,8 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string, re
 
 		s.detectSubtitles(id, path)
 		s.storeAudioTracks(id, probeResult.Streams)
+		s.storeVideoTracks(id, probeResult.Streams)
+		s.storeInternalSubtitles(id, path, probeResult.Streams)
 	}
 	s.db.Exec(`COMMIT`)
 }
@@ -746,6 +774,61 @@ func (s *Scanner) storeAudioTracks(mediaID int64, streams []ProbeStream) {
 			mediaID, lang, stream.CodecName, stream.Channels, stream.Index, title, isDefault,
 		)
 	}
+}
+
+func (s *Scanner) storeVideoTracks(mediaID int64, streams []ProbeStream) {
+	first := true
+	for _, stream := range streams {
+		if stream.CodecType != "video" {
+			continue
+		}
+		if isCoverOrMjpeg(stream.CodecName, stream.Width, stream.Height) {
+			continue
+		}
+		isDefault := 0
+		if first {
+			isDefault = 1
+			first = false
+		}
+		isHdr := 0
+		if stream.IsHDR() {
+			isHdr = 1
+		}
+		s.db.Exec(
+			`INSERT OR IGNORE INTO media_video_tracks (media_id, codec, width, height, stream_index, profile, bit_rate, frame_rate, color_transfer, is_hdr, is_default) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			mediaID, stream.CodecName, stream.Width, stream.Height, stream.Index,
+			stream.Profile, stream.BitRate, stream.FrameRate(), stream.Tags.ColorTransfer, isHdr, isDefault,
+		)
+	}
+}
+
+func (s *Scanner) storeInternalSubtitles(mediaID int64, filePath string, streams []ProbeStream) {
+	for _, stream := range streams {
+		if stream.CodecType != "subtitle" {
+			continue
+		}
+		// Ignore attached picture/cover (dvd_sub_pic etc.) only if explicitly non-printable.
+		lang := stream.Tags.Language
+		if lang == "" {
+			lang = "und"
+		}
+		isForced := 0
+		if strings.Contains(strings.ToLower(stream.Tags.Title), "forced") {
+			isForced = 1
+		}
+		isDefault := 0
+		if strings.Contains(strings.ToLower(stream.Tags.Title), "default") {
+			isDefault = 1
+		}
+		s.db.Exec(
+			`INSERT OR IGNORE INTO media_subtitles (media_id, language, codec, file_path, is_forced, is_external, stream_index, is_default) VALUES (?, ?, ?, '', ?, 0, ?, ?)`,
+			mediaID, lang, stream.CodecName, isForced, stream.Index, isDefault,
+		)
+	}
+}
+
+func isCoverOrMjpeg(codec string, width, height int) bool {
+	return codec == "mjpeg" || codec == "png" || (codec == "" && (width == 0 || height == 0))
 }
 
 func probeFallbackDuration(path string) int {

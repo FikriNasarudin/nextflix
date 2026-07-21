@@ -34,6 +34,7 @@ export default function DashboardPage() {
   const [scanStatus, setScanStatus] = useState(null)
   const [settings, setSettings] = useState(null)
   const [runningAction, setRunningAction] = useState(null)
+  const [queue, setQueue] = useState([])
 
   useEffect(() => {
     adminFetch('/stats').then(setStats)
@@ -43,14 +44,16 @@ export default function DashboardPage() {
     let interval
     const poll = async () => {
       try {
-        const [scanData, statsData] = await Promise.all([
+        const [scanData, statsData, queueData] = await Promise.all([
           fetch('/api/v1/admin/scan/status', {
             headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') },
           }).then(r => r.json()),
           adminFetch('/stats'),
+          adminFetch('/encoder/queue'),
         ])
         setScanStatus(scanData)
         if (statsData) setStats(statsData)
+        if (queueData) setQueue(queueData)
         if (!scanData.running) {
           setRunningAction(null)
         }
@@ -113,6 +116,54 @@ export default function DashboardPage() {
         <EnrichmentCard title="Movies Enrichment" data={me?.movies_enrichment} />
         <EnrichmentCard title="TV Shows Enrichment" data={me?.tv_enrichment} />
       </div>
+
+      <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 12 }}>Video Optimization</h2>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 16, marginBottom: 32 }}>
+        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--accent)' }}>{stats?.optimization?.optimized || 0}</div>
+          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Optimized</div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--muted)' }}>{stats?.optimization?.pending || 0}</div>
+          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Pending</div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)' }}>{stats?.optimization?.in_progress || 0}</div>
+          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>In Progress</div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: '#e50914' }}>{stats?.optimization?.failed || 0}</div>
+          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Failed</div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--tertiary-container)' }}>{stats?.optimization?.queue_length || 0}</div>
+          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Queue</div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
+          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text)' }}>{((stats?.optimization?.total_size_bytes || 0) / 1024 / 1024 / 1024).toFixed(1)} GB</div>
+          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>HLS Storage</div>
+        </div>
+      </div>
+
+      {(queue?.length || 0) > 0 && (
+        <div style={{ marginBottom: 32 }}>
+          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 12 }}>Encoder Queue ({queue.length})</h2>
+          <div style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: '0 var(--space-md)', maxHeight: 280, overflowY: 'auto', border: '1px solid rgba(255,255,255,.04)' }}>
+            {queue.map((q, i) => (
+              <div key={i} style={{ display: 'flex', gap: 12, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,.04)', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text)', fontSize: '.85rem', minWidth: 200, flex: 1 }}>{q.title || 'Media #' + q.media_id}</span>
+                <span style={{ color: 'var(--muted)', fontSize: '.78rem', minWidth: 60 }}>{q.rendition}</span>
+                <div style={{ minWidth: 140 }}>
+                  <div style={{ height: 5, background: 'var(--surface-container-high)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: (q.progress_percent || 0) + '%', background: q.status === 'failed' ? '#e50914' : 'var(--accent)', transition: 'width .3s' }} />
+                  </div>
+                </div>
+                <span style={{ color: q.status === 'failed' ? '#e50914' : 'var(--accent)', fontSize: '.78rem', minWidth: 80, textAlign: 'right' }}>{q.status} {q.progress_percent > 0 ? q.progress_percent + '%' : ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ marginBottom: 24 }}>
         <p style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: 8 }}>
