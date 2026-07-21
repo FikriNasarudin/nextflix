@@ -36,7 +36,7 @@ func (h *RecommendationHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *RecommendationHandler) getContinueWatching(profileID int64) []any {
 	rows, err := h.db.Query(`
 		SELECT pp.media_id, mi.title,
-		       COALESCE(mi.poster_path, mp.file_path, '') as poster_path,
+		       CASE WHEN mp.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path,
 		       pp.position_seconds, mi.duration_seconds,
 		       COALESCE(mi.backdrop_path, mb.file_path, '') as backdrop_path
 		FROM playback_progress pp
@@ -79,7 +79,7 @@ func (h *RecommendationHandler) getContinueWatching(profileID int64) []any {
 func (h *RecommendationHandler) getCached(section string, profileID int64) []any {
 	rows, err := h.db.Query(`
 		SELECT pr.media_id, mi.title,
-		       COALESCE(mi.poster_path, mp.file_path, '') as poster_path,
+		       CASE WHEN mp.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path,
 		       COALESCE(mi.backdrop_path, mb.file_path, '') as backdrop_path,
 		       pr.score, mi.duration_seconds
 		FROM profile_recommendations pr

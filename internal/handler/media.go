@@ -37,7 +37,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		SELECT mi.id, mi.library_id, mi.title, mi.media_type, mi.tmdb_id, mi.rating,
 		       mi.duration_seconds, mi.trailer_youtube_id,
 		       COALESCE(mi.backdrop_path, mb.file_path, '') as backdrop_path,
-		       COALESCE(mi.poster_path, mp.file_path, '') as poster_path,
+		       CASE WHEN mp.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path,
 		       mi.show_name, mi.season_number, mi.episode_number, mi.episode_title, mi.year, mi.overview,
 		       COALESCE(mi.hls_480p_path, '') as hls_480p_path,
 		       mi.file_path,

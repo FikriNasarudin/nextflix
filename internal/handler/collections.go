@@ -97,7 +97,7 @@ func (h *CollectionHandler) Items(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.db.Query(`
 		SELECT mi.id, mi.title, mi.media_type,
-		       COALESCE(mi.poster_path, mp.file_path, '') as poster_path,
+		       CASE WHEN mp.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path,
 		       mi.duration_seconds
 		FROM collection_items ci
 		JOIN media_items mi ON mi.id = ci.media_id
