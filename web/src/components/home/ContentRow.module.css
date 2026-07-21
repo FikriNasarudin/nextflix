@@ -1,0 +1,67 @@
+.rowSection { padding: var(--space-xl) var(--space-xxl) 0; }
+.rowTitle {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: var(--space-sm);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rowTitle::before {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 22px;
+  background: linear-gradient(var(--primary), var(--accent));
+  border-radius: 2px;
+}
+.rowWrapper { position: relative; }
+.row {
+  display: flex;
+  overflow-x: auto;
+  gap: var(--space-gutter);
+  padding-bottom: var(--space-md);
+  scroll-behavior: smooth;
+  cursor: grab;
+  scroll-snap-type: x mandatory;
+  mask-image: linear-gradient(90deg, transparent 0, #000 60px, #000 calc(100% - 60px), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 60px, #000 calc(100% - 60px), transparent 100%);
+}
+.row:active { cursor: grabbing; }
+.row::-webkit-scrollbar { display: none; }
+.rowTrending { gap: 8px; }
+.rowArrow {
+  position: absolute;
+  top: 0;
+  bottom: var(--space-md);
+  width: 44px;
+  z-index: 10;
+  cursor: pointer;
+  border: none;
+  font-size: 1.8rem;
+  color: #fff;
+  background: rgba(0,0,0,.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity .25s;
+}
+.rowWrapper:hover .rowArrow { opacity: 1; }
+.rowArrowLeft { left: 0; border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.rowArrowRight { right: 0; border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.viewAll {
+  font-size: .75rem;
+  font-weight: 500;
+  color: var(--accent);
+  cursor: pointer;
+  transition: color .15s;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.viewAll:hover { color: var(--primary); }
+
+@media (max-width: 768px) {
+  .rowSection { padding: var(--space-lg) var(--space-md) 0; }
+}

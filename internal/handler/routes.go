@@ -3,8 +3,8 @@ package handler
 import (
 	"database/sql"
 	"encoding/json"
-	"html/template"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -309,20 +309,40 @@ func (r *Router) mountCollections() {
 }
 
 func (r *Router) mountFrontend() {
-	r.mux.Handle("/static/", http.FileServer(http.FS(web.FS)))
+	distFS, err := fs.Sub(web.FS, "dist")
+	if err != nil {
+		log.Fatalf("failed to get dist sub-filesystem: %v", err)
+	}
+
+	r.mux.Handle("GET /assets/", http.FileServer(http.FS(distFS)))
 
 	r.mux.HandleFunc("/admin", func(w http.ResponseWriter, req *http.Request) {
-		tmpl := template.Must(template.ParseFS(web.FS, "templates/admin/layout.html"))
-		tmpl.Execute(w, nil)
+		data, err := web.FS.ReadFile("dist/admin/index.html")
+		if err != nil {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(data)
 	})
 	r.mux.HandleFunc("/admin/", func(w http.ResponseWriter, req *http.Request) {
-		tmpl := template.Must(template.ParseFS(web.FS, "templates/admin/layout.html"))
-		tmpl.Execute(w, nil)
+		data, err := web.FS.ReadFile("dist/admin/index.html")
+		if err != nil {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(data)
 	})
 
-	r.mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-		tmpl := template.Must(template.ParseFS(web.FS, "templates/layout.html", "templates/index.html"))
-		tmpl.Execute(w, map[string]string{"Title": "Nextflix"})
+	r.mux.HandleFunc("/{rest...}", func(w http.ResponseWriter, req *http.Request) {
+		data, err := web.FS.ReadFile("dist/index.html")
+		if err != nil {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(data)
 	})
 }
 

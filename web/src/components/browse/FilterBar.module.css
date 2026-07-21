@@ -1,0 +1,18 @@
+.bar { display: flex; gap: 8px; margin-bottom: var(--space-md); flex-wrap: wrap; }
+.btn {
+  padding: 5px 14px;
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--muted);
+  font-size: .8rem;
+  cursor: pointer;
+  transition: all .15s;
+  font-family: inherit;
+}
+.btn:hover { border-color: var(--primary); color: var(--text); }
+.active {
+  background: linear-gradient(135deg, var(--primary-glow), var(--tertiary-container));
+  border-color: transparent;
+  color: var(--on-primary-container);
+}

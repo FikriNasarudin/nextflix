@@ -1,0 +1,5 @@
+.overlay { display: none; position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.7); backdrop-filter: blur(8px); align-items: center; justify-content: center; }
+.open { display: flex; }
+.box { background: var(--surface-container-low); border-radius: var(--radius-lg); padding: var(--space-lg); min-width: 360px; max-width: 500px; max-height: 80vh; overflow-y: auto; border: 1px solid rgba(255,255,255,.08); }
+.box h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: var(--space-md); }
+.actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: var(--space-md); }

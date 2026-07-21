@@ -1,0 +1,26 @@
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeletonHero {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, var(--card-surface) 25%, #2a2a4a 50%, var(--card-surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s ease infinite;
+}
+.skeletonRow {
+  display: flex;
+  gap: 10px;
+  padding: 0 var(--space-xxl);
+  margin-top: 12px;
+}
+.skeletonCard {
+  width: 200px;
+  aspect-ratio: 2/3;
+  flex-shrink: 0;
+  background: linear-gradient(110deg, var(--card-surface) 25%, #2a2a4a 50%, var(--card-surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease infinite;
+  border-radius: var(--radius);
+}

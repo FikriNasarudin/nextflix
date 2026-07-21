@@ -1,0 +1,8 @@
+.btn { padding: 8px var(--space-md); border: none; border-radius: var(--radius); cursor: pointer; font-size: .85rem; font-weight: 600; font-family: inherit; transition: all .15s; }
+.btn-primary { background: linear-gradient(135deg, var(--primary-glow), var(--tertiary-container)); color: var(--on-primary-container); }
+.btn-primary:hover { transform: scale(1.02); box-shadow: 0 0 16px rgba(194,109,240,.3); }
+.btn-sm { padding: 4px 10px; font-size: .8rem; }
+.btn-danger { background: #e50914; color: #fff; }
+.btn-danger:hover { background: #f40612; }
+.btn-outline { background: transparent; border: 1px solid var(--outline-variant); color: var(--text); }
+.btn-outline:hover { border-color: var(--primary); }

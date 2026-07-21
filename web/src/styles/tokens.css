@@ -1,0 +1,61 @@
+:root {
+  --void:                     #0a0a0f;
+  --bg:                       #0a0a0f;
+  --surface:                  #131318;
+  --surface-dim:              #131318;
+  --surface-bright:           #39383e;
+  --surface-container-lowest: #0e0e13;
+  --surface-container-low:    #1b1b20;
+  --surface-container:        #1f1f25;
+  --surface-container-high:   #2a292f;
+  --surface-container-highest:#35343a;
+  --surface-variant:          #35343a;
+  --card-surface:             #1a1a2e;
+
+  --text:                     #e4e1e9;
+  --on-surface:               #e4e1e9;
+  --on-surface-variant:       #d1c2d3;
+  --muted:                    #9a8c9d;
+  --outline:                  #9a8c9d;
+  --outline-variant:          #4e4351;
+  --border-color:             rgba(255,255,255,.08);
+
+  --primary:                  #e7b4ff;
+  --primary-glow:             #c26df0;
+  --primary-container:        #c26df0;
+  --on-primary:               #500075;
+  --on-primary-container:     #48006a;
+
+  --secondary:                #ffffff;
+  --secondary-container:      #00fbfb;
+  --on-secondary:             #003737;
+  --on-secondary-container:   #007070;
+
+  --tertiary:                 #ddb7ff;
+  --tertiary-container:       #b86fff;
+
+  --error:                    #ffb4ab;
+  --accent:                   #00fbfb;
+
+  --nav-bg:                   rgba(10,10,15,.85);
+  --glass-border:             rgba(255,255,255,.08);
+
+  --font-display: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-body:    'Inter', system-ui, -apple-system, sans-serif;
+
+  --radius:        6px;
+  --radius-sm:     4px;
+  --radius-md:     8px;
+  --radius-lg:     12px;
+  --radius-xl:     16px;
+  --radius-full:   9999px;
+
+  --space-unit:    4px;
+  --space-xs:      8px;
+  --space-sm:      12px;
+  --space-md:      16px;
+  --space-lg:      24px;
+  --space-xl:      40px;
+  --space-xxl:     60px;
+  --space-gutter:  12px;
+}

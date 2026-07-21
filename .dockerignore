@@ -4,6 +4,8 @@
 data/
 media/
 node_modules/
+web/node_modules/
+web/dist/
 *.md
 AGENTS.md
 .vscode/

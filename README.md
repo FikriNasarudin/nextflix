@@ -1,6 +1,6 @@
 # Nextflix — Low-Spec Home Media Server
 
-Single-binary Netflix clone for home labs. Go backend + embedded web UI.
+Single-binary Netflix clone for home labs. Go backend + React SPA compiled into one binary.
 Optimized for **< 35 MB RAM** and slow connections.
 
 ## Quick Start
@@ -37,7 +37,7 @@ Password: admin
 - **Admin Panel** at `/admin` — user management, library CRUD, tag editor, settings
 - **hls.js Player** with 1080p/480p quality switching
 - **Hover Preview** with YouTube trailers (1.2s delay)
-- **Embedded UI** — all static files compiled into the binary via `go:embed`
+- **Embedded React SPA** — React 18 + React Router + TanStack Query, compiled into the binary via `go:embed`
 
 ## Configuration
 
@@ -127,7 +127,7 @@ SQLite3 with WAL mode. 12 tables managed via raw SQL (no ORM). Schema is auto-cr
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/` | No | Main Netflix-style UI |
+| `GET` | `/` | No | React SPA (embedded via go:embed) |
 | `POST` | `/api/v1/auth/login` | No | Login → JWT |
 
 ### Authenticated (profile-scoped JWT)
@@ -169,33 +169,53 @@ SQLite3 with WAL mode. 12 tables managed via raw SQL (no ORM). Schema is auto-cr
 |---|---|
 | `/admin` | Dashboard |
 | `/admin/users` | User manager |
-| `/admin/users/{id}` | Profile manager per user |
 | `/admin/libraries` | Library CRUD |
 | `/admin/tags` | Tag editor |
 | `/admin/media` | Media manager |
+| `/admin/collections` | Collection manager |
 | `/admin/settings` | App settings |
+
+Both the main app and admin panel are separate Vite entry points in the same React codebase, sharing the API client, CSS design tokens, and auth context.
 
 ## Prerequisites
 
-Only **Docker**. The image bundles Go 1.22, ffmpeg, ffprobe, and a C compiler — nothing else needed on your host:
+**Docker** is all you need. The multi-stage Dockerfile builds both the React frontend (Node.js) and Go backend in one command:
 
 ```bash
 docker compose up --build -d
 ```
 
+For local development outside Docker:
+
+| Tool | Minimum Version |
+|---|---|
+| Go | 1.22+ |
+| Node.js | 20+ |
+| ffmpeg + ffprobe | any recent |
+| gcc | for CGO SQLite bindings |
+
 ## Development
 
-Run outside Docker (requires Go 1.22+, ffmpeg, and gcc):
+Run outside Docker (requires Go 1.22+, Node.js 20+, ffmpeg, and gcc):
 
 ```bash
+# Backend (terminal 1)
 go run .
-CGO_ENABLED=1 go build .
+
+# Frontend dev server with HMR (terminal 2)
+cd web && npm install && npm run dev
+# → http://localhost:5173 (proxies /api to :8080)
+
+# Production build for testing the embedded binary
+cd web && npm run build       # Vite outputs to web/dist/
+CGO_ENABLED=1 go build .      # Embeds dist/ into the binary
 ```
 
 On startup, the server runs a full media scan and starts a filesystem watcher. New video files placed in the media directory are automatically detected, probed, and queued for 480p HLS conversion.
 
 ## Architecture
 
+### Backend (Go)
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                      LibraryManager                          │
@@ -220,6 +240,46 @@ On startup, the server runs a full media scan and starts a filesystem watcher. N
 - **Providers** enrich items with metadata (TMDB) and download images locally
 - **ImageCacheManager** downloads TMDB images to `data/metadata/library/{id}/` — served directly from disk
 - **LibraryManager** orchestrates the scan-and-enrich pipeline
+
+### Frontend (React + Vite)
+```
+web/
+├── index.html                    → Main SPA entry
+├── admin/index.html              → Admin panel entry
+├── src/
+│   ├── main.jsx                  → React root (QueryClient + AuthProvider + BrowserRouter)
+│   ├── admin.jsx                 → Admin root
+│   ├── App.jsx                   → Routes: /, /detail/:id, /browse/*, /watch/:id, /collections
+│   ├── AdminApp.jsx              → Routes: dashboard, users, libraries, tags, media, collections, settings
+│   ├── api/client.js             → Fetch wrapper (JWT, in-memory cache, dedup)
+│   ├── api/admin.js              → Admin API client
+│   ├── context/AuthContext.jsx   → Auth state (login/logout/role)
+│   ├── components/
+│   │   ├── layout/               → TopNav, BottomNav, Layout
+│   │   ├── auth/                 → LoginOverlay (particle canvas)
+│   │   ├── home/                 → Hero, ContentRow, MediaCard, SkeletonLoader
+│   │   ├── detail/               → DetailPage, EpisodeList
+│   │   ├── browse/               → FilterBar
+│   │   ├── player/               → PlayerOverlay (hls.js), ControlBar, SettingsDrawer, EpisodeDrawer
+│   │   └── admin/                → AdminLayout, Modal
+│   └── pages/                    → HomePage, DetailPage, BrowsePage, PlayerPage, CollectionsPage
+│       └── admin/                → DashboardPage, UsersPage, LibrariesPage, TagsPage, MediaPage,
+│                                    CollectionsAdminPage, SettingsPage
+├── dist/                         → Vite build output (embedded via go:embed)
+```
+
+Vite compiles the React app to static HTML/CSS/JS in `web/dist/`. The Go binary embeds `dist/**` at compile time and serves it via `http.FileServer`. At runtime, the React SPA takes over with client-side routing (React Router BrowserRouter) and fetches data from `/api/v1/*` endpoints.
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Backend** | Go 1.22, `net/http` (Go 1.22 ServeMux), raw SQL |
+| **Frontend** | React 18, React Router v6, TanStack Query v5 |
+| **Bundler** | Vite 6, CSS Modules |
+| **Video** | hls.js (npm), ffmpeg/ffprobe |
+| **Database** | SQLite3 via `mattn/go-sqlite3`, WAL mode |
+| **Auth** | JWT (golang-jwt), bcrypt |
 
 ## License
 

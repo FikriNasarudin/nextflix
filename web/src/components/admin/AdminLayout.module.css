@@ -1,0 +1,7 @@
+.layout { display: flex; min-height: 100vh; background: var(--bg); font-family: var(--font-body); }
+.sidebar { width: 220px; background: var(--surface-container-low); border-right: 1px solid rgba(255,255,255,.06); padding: var(--space-lg) 0; flex-shrink: 0; }
+.logo { display: block; padding: 0 var(--space-lg) var(--space-lg); font-size: 1.2rem; font-weight: 900; color: var(--primary); letter-spacing: -.5px; border-bottom: 1px solid rgba(255,255,255,.06); margin-bottom: var(--space-md); }
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.navLink { display: block; padding: 10px var(--space-lg); color: var(--muted); font-size: .9rem; transition: all .15s; border-left: 3px solid transparent; cursor: pointer; }
+.navLink:hover, .active { color: var(--text); background: rgba(255,255,255,.04); border-left-color: var(--primary); }
+.main { flex: 1; padding: 32px var(--space-xl); overflow-y: auto; }
