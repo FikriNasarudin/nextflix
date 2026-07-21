@@ -62,17 +62,19 @@ async function loadSection(section) {
 }
 
 async function renderDashboard(el) {
-  const [users, libs, media, activity, settings] = await Promise.all([
-    api('/users'), api('/libraries'), api('/media'),
-    api('/activity'), api('/settings'),
+  const [stats, activity, settings] = await Promise.all([
+    api('/stats'), api('/activity'), api('/settings'),
   ]);
   const mediaDir = (settings || {}).scanner_media_dir || '—';
+  const s = stats || {};
+  const m = s.media || {};
   el.innerHTML = `
     <h1>Dashboard</h1>
     <div class="card-stats">
-      <div class="stat-card"><div class="stat-value">${(users || []).length}</div><div class="stat-label">Users</div></div>
-      <div class="stat-card"><div class="stat-value">${(libs || []).length}</div><div class="stat-label">Libraries</div></div>
-      <div class="stat-card"><div class="stat-value">${(media || []).length}</div><div class="stat-label">Media Items</div></div>
+      <div class="stat-card"><div class="stat-value">${s.users ?? '—'}</div><div class="stat-label">Users</div></div>
+      <div class="stat-card"><div class="stat-value">${s.libraries ?? '—'}</div><div class="stat-label">Libraries</div></div>
+      <div class="stat-card"><div class="stat-value">${m.movies ?? '—'}</div><div class="stat-label">Movies</div></div>
+      <div class="stat-card"><div class="stat-value">${m.tv_shows ?? '—'}</div><div class="stat-label">TV Shows</div></div>
       <div class="stat-card"><div class="stat-value" style="font-size:1rem">v0.1.0</div><div class="stat-label">Version</div></div>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">

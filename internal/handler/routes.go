@@ -333,6 +333,7 @@ func (r *Router) mountAdmin() {
 	mh := admin.NewMediaHandler(r.db)
 	sh := admin.NewSettingsHandler(r.db)
 	ch := admin.NewCollectionHandler(r.db)
+	sth := admin.NewStatsHandler(r.db)
 
 	a := func(h http.HandlerFunc) http.Handler {
 		return r.authMid(r.adminMid(h))
@@ -341,6 +342,8 @@ func (r *Router) mountAdmin() {
 	adminMux := http.NewServeMux()
 
 	adminMux.Handle("GET /api/v1/admin/directories", a(lh.ListDirectories))
+
+	adminMux.Handle("GET /api/v1/admin/stats", a(sth.Get))
 
 	adminMux.Handle("GET /api/v1/admin/users", a(uh.List))
 	adminMux.Handle("POST /api/v1/admin/users", a(uh.Create))
