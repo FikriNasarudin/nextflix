@@ -95,6 +95,9 @@ func (p *TMDBProvider) Fetch(ctx context.Context, item *model.MediaItem) (*Metad
 
 	if tmdbID == 0 {
 		searchTitle := item.Title
+		if item.MediaType == "tv" && item.ShowName != "" {
+			searchTitle = item.ShowName
+		}
 		year := 0
 		if item.Year != "" {
 			year, _ = strconv.Atoi(item.Year)

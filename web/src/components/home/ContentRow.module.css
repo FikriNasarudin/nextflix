@@ -28,6 +28,7 @@
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 60px, #000 calc(100% - 60px), transparent 100%);
 }
 .row:active { cursor: grabbing; }
+.row { scrollbar-width: none; }
 .row::-webkit-scrollbar { display: none; }
 .rowTrending { gap: 8px; }
 .rowArrow {

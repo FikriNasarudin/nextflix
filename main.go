@@ -82,6 +82,15 @@ func main() {
 		lm.RefreshMetadata()
 	}
 
+	refreshFunc := func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("Metadata refresh: panic recovered: %v", rec)
+			}
+		}()
+		lm.RefreshMetadata()
+	}
+
 	rec := recommendation.NewEngine(db)
 	rec.Start()
 
@@ -90,7 +99,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         addr(cfg.Server.Port),
-		Handler:      handler.NewRouter(db, authMgr, cfg.Encoder.HLSOutputDir, cfg.Scanner.MediaDir, lm.Scanner(), scanFunc),
+		Handler:      handler.NewRouter(db, authMgr, cfg.Encoder.HLSOutputDir, cfg.Scanner.MediaDir, lm.Scanner(), scanFunc, refreshFunc, tmdbSync.Trigger),
 		ReadTimeout:  time.Duration(cfg.Server.ReadTimeoutSec) * time.Second,
 		WriteTimeout: time.Duration(cfg.Server.WriteTimeoutSec) * time.Second,
 		IdleTimeout:  60 * time.Second,

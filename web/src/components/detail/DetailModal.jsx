@@ -9,13 +9,15 @@ import CastSection from './CastSection'
 import styles from './DetailModal.module.css'
 
 export default function DetailModal() {
-  const { item: modalItem, closeDetail } = useDetailModal()
+  const { item: modalItem, closeDetail, pushDetail, goBack, hasHistory } = useDetailModal()
   const navigate = useNavigate()
   const [selectedSeason, setSelectedSeason] = useState(1)
 
+  const isCollection = modalItem?.media_type === 'collection'
+
   const { data: allData } = useQuery({
     queryKey: ['detail', modalItem?.id],
-    enabled: !!modalItem,
+    enabled: !!modalItem && !isCollection,
     queryFn: async () => {
       const [mediaMovies, mediaTV, collections, recommendations] = await Promise.all([
         apiFetch('/media?limit=500&media_type=movie'),
@@ -35,9 +37,21 @@ export default function DetailModal() {
     },
   })
 
+  const { data: collectionDetail } = useQuery({
+    queryKey: ['collection-detail', modalItem?.id],
+    enabled: !!modalItem && isCollection,
+    queryFn: () => apiFetch('/collections/' + modalItem.id),
+  })
+
+  const { data: collectionItems } = useQuery({
+    queryKey: ['collection-items', modalItem?.id],
+    enabled: !!modalItem && isCollection,
+    queryFn: () => apiFetch('/collections/' + modalItem.id + '/items'),
+  })
+
   const { data: collectionData } = useQuery({
     queryKey: ['media-collection', modalItem?.id],
-    enabled: !!modalItem,
+    enabled: !!modalItem && !isCollection,
     queryFn: () => apiFetch('/media/' + modalItem.id + '/collection'),
   })
 
@@ -51,12 +65,79 @@ export default function DetailModal() {
     return () => { document.body.style.overflow = '' }
   }, [modalItem])
 
+  const movieItem = !isCollection ? (allData?.item || modalItem) : null
+  const movieAllMedia = !isCollection ? (allData?.allMedia || []) : []
+
+  const seasons = useMemo(() => {
+    if (!movieItem || movieItem?.media_type !== 'tv' || !movieItem?.show_name) return []
+    const showEpisodes = movieAllMedia.filter(
+      m => m.media_type === 'tv' && m.show_name === movieItem.show_name
+    )
+    const seasonSet = new Set(showEpisodes.map(e => e.season_number || 1))
+    return [...seasonSet].sort((a, b) => a - b)
+  }, [movieItem?.show_name, movieAllMedia])
+
+  const seasonEpisodes = useMemo(() => {
+    if (!movieItem || movieItem?.media_type !== 'tv' || !movieItem?.show_name) return []
+    return movieAllMedia.filter(
+      m => m.media_type === 'tv' && m.show_name === movieItem.show_name && (m.season_number || 1) === selectedSeason
+    ).sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0))
+  }, [movieItem?.show_name, selectedSeason, movieAllMedia])
+
   if (!modalItem) return null
+
+  if (isCollection) {
+    const colDetail = collectionDetail || modalItem
+    const items = collectionItems || []
+    const colBackdrop = backdropUrl(colDetail.backdrop_path, colDetail.poster_path, colDetail.id)
+    const colPoster = imageUrl(colDetail.poster_path, colDetail.id, 'poster', 'w500')
+
+    return (
+      <div className={styles.overlay} onClick={closeDetail}>
+        <div className={styles.modal} onClick={e => e.stopPropagation()}>
+          {hasHistory && (
+            <button className={styles.backBtn} onClick={goBack}>
+              <span className="material-symbols-outlined">arrow_back</span>
+            </button>
+          )}
+          <button className={styles.closeBtn} onClick={closeDetail}>
+            <span className="material-symbols-outlined">close</span>
+          </button>
+
+          <div className={styles.backdrop} style={{ backgroundImage: colBackdrop ? `url(${colBackdrop})` : undefined }} />
+
+          <div className={styles.body}>
+            <div className={styles.layout}>
+              <div className={styles.posterCol}>
+                <img className={styles.poster} src={colPoster} alt={colDetail.title || colDetail.name} />
+              </div>
+              <div className={styles.infoCol}>
+                <h1 className={styles.title}>{colDetail.title || colDetail.name}</h1>
+                <p className={styles.meta}>{colDetail.item_count} items</p>
+                {colDetail.overview && <p className={styles.overview}>{colDetail.overview}</p>}
+              </div>
+            </div>
+
+            {items.length > 0 && (
+              <section className={styles.collectionSection}>
+                <h3 className="f-title-md">Movies in this Collection</h3>
+                <div className={styles.grid}>
+                  {items.map(ci => (
+                    <MediaCard key={ci.id} item={ci} onClick={pushDetail} hideTitle />
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const item = allData?.item || modalItem
   const allMedia = allData?.allMedia || []
   const similar = allData?.similar || []
-  const collectionItems = collectionData?.items?.filter(c => c.id !== parseInt(item.id)) || []
+  const mediaCollectionItems = collectionData?.items?.filter(c => c.id !== parseInt(item.id)) || []
   const backdrop = item ? backdropUrl(item.backdrop_path, item.poster_path, item.id) : ''
   const poster = item ? imageUrl(item.poster_path, item.id, 'poster', 'w500') : ''
   const isTV = item?.media_type === 'tv'
@@ -64,22 +145,6 @@ export default function DetailModal() {
   const year = item?.release_date ? item.release_date.substring(0, 4) : ''
   const duration = item?.duration_seconds ? Math.floor(item.duration_seconds / 60) + 'm' : ''
   const episodes = item?.episode_count ? item.episode_count + ' episodes' : ''
-
-  const seasons = useMemo(() => {
-    if (!isTV || !item?.show_name) return []
-    const showEpisodes = allMedia.filter(
-      m => m.media_type === 'tv' && m.show_name === item.show_name
-    )
-    const seasonSet = new Set(showEpisodes.map(e => e.season_number || 1))
-    return [...seasonSet].sort((a, b) => a - b)
-  }, [isTV, item?.show_name, allMedia])
-
-  const seasonEpisodes = useMemo(() => {
-    if (!isTV || !item?.show_name) return []
-    return allMedia.filter(
-      m => m.media_type === 'tv' && m.show_name === item.show_name && (m.season_number || 1) === selectedSeason
-    ).sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0))
-  }, [isTV, item?.show_name, selectedSeason, allMedia])
 
   const handlePlay = () => {
     closeDetail()
@@ -89,6 +154,11 @@ export default function DetailModal() {
   return (
     <div className={styles.overlay} onClick={closeDetail}>
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        {hasHistory && (
+          <button className={styles.backBtn} onClick={goBack}>
+            <span className="material-symbols-outlined">arrow_back</span>
+          </button>
+        )}
         <button className={styles.closeBtn} onClick={closeDetail}>
           <span className="material-symbols-outlined">close</span>
         </button>
@@ -131,12 +201,12 @@ export default function DetailModal() {
             </div>
           )}
 
-          {collectionItems.length > 0 && (
+          {mediaCollectionItems.length > 0 && (
             <section className={styles.collectionSection}>
               <h3 className="f-title-md">More from {collectionData.name}</h3>
               <div className={styles.grid}>
-                {collectionItems.map(ci => (
-                  <MediaCard key={ci.id} item={ci} hideTitle />
+                {mediaCollectionItems.map(ci => (
+                  <MediaCard key={ci.id} item={ci} onClick={pushDetail} hideTitle />
                 ))}
               </div>
             </section>
@@ -146,8 +216,8 @@ export default function DetailModal() {
             <section className={styles.similarSection}>
               <h3 className="f-title-md">More Like This</h3>
               <div className={styles.grid}>
-                {similar.map(item => (
-                  <MediaCard key={item.id} item={item} hideTitle />
+                {similar.map(simItem => (
+                  <MediaCard key={simItem.id} item={simItem} onClick={pushDetail} hideTitle />
                 ))}
               </div>
             </section>

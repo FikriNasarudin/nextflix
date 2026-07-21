@@ -106,6 +106,7 @@ func (r *EpisodeResolver) Resolve(path string, mediaDir string) (*ResolveResult,
 	}
 
 	year := extractYearFromDir(parentDir)
+	tmdbID := extractTmdbID(parentDir)
 
 	if showName == "" {
 		return nil, nil
@@ -144,6 +145,9 @@ func (r *EpisodeResolver) Resolve(path string, mediaDir string) (*ResolveResult,
 		EpisodeNumber: episode,
 		EpisodeTitle:  epTitle,
 	}
+	if tmdbID > 0 {
+		mediaItem.TmdbID = &tmdbID
+	}
 
 	return &ResolveResult{
 		Item:          mediaItem,
@@ -154,6 +158,7 @@ func (r *EpisodeResolver) Resolve(path string, mediaDir string) (*ResolveResult,
 		EpisodeEnd:    episodeEnd,
 		EpisodeTitle:  epTitle,
 		Year:          year,
+		TmdbID:        tmdbID,
 	}, nil
 }
 

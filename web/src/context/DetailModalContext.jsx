@@ -1,15 +1,40 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useCallback, useRef } from 'react'
 
 const DetailModalContext = createContext(null)
 
 export function DetailModalProvider({ children }) {
   const [item, setItem] = useState(null)
+  const [history, setHistory] = useState([])
+  const itemRef = useRef(null)
+  itemRef.current = item
 
-  const openDetail = useCallback((item) => setItem(item), [])
-  const closeDetail = useCallback(() => setItem(null), [])
+  const openDetail = useCallback((nextItem) => {
+    setItem(nextItem)
+    setHistory([])
+  }, [])
+
+  const pushDetail = useCallback((nextItem) => {
+    setHistory(prev => [...prev, itemRef.current])
+    setItem(nextItem)
+  }, [])
+
+  const goBack = useCallback(() => {
+    setHistory(prev => {
+      if (prev.length === 0) return prev
+      const newHistory = [...prev]
+      const prevItem = newHistory.pop()
+      setItem(prevItem)
+      return newHistory
+    })
+  }, [])
+
+  const closeDetail = useCallback(() => {
+    setItem(null)
+    setHistory([])
+  }, [])
 
   return (
-    <DetailModalContext.Provider value={{ item, openDetail, closeDetail }}>
+    <DetailModalContext.Provider value={{ item, openDetail, pushDetail, goBack, closeDetail, hasHistory: history.length > 0 }}>
       {children}
     </DetailModalContext.Provider>
   )

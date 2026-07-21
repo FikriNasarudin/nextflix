@@ -24,28 +24,32 @@ import (
 const placeholderSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><rect width="300" height="450" fill="#1a1a2e"/><circle cx="150" cy="200" r="32" fill="none" stroke="#4e4351" stroke-width="2"/><polygon points="141,188 141,212 166,200" fill="#4e4351"/><text x="150" y="255" fill="#9a8c9d" font-family="sans-serif" font-size="11" text-anchor="middle">No Poster</text></svg>`
 
 type Router struct {
-	mux      *http.ServeMux
-	db       *sql.DB
-	authMgr  *auth.Manager
-	hlsDir   string
-	mediaDir string
-	authMid  func(http.Handler) http.Handler
-	adminMid func(http.Handler) http.Handler
-	scanner  *scanner.Scanner
-	scanFunc func()
+	mux         *http.ServeMux
+	db          *sql.DB
+	authMgr     *auth.Manager
+	hlsDir      string
+	mediaDir    string
+	authMid     func(http.Handler) http.Handler
+	adminMid    func(http.Handler) http.Handler
+	scanner     *scanner.Scanner
+	scanFunc    func()
+	refreshFunc func()
+	syncFunc    func()
 }
 
-func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, mediaDir string, scn *scanner.Scanner, scanFunc func()) *Router {
+func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, mediaDir string, scn *scanner.Scanner, scanFunc func(), refreshFunc func(), syncFunc func()) *Router {
 	r := &Router{
-		mux:      http.NewServeMux(),
-		db:       db,
-		authMgr:  authMgr,
-		hlsDir:   hlsDir,
-		mediaDir: mediaDir,
-		authMid:  middleware.Auth(authMgr),
-		adminMid: middleware.RequireAdmin,
-		scanner:  scn,
-		scanFunc: scanFunc,
+		mux:         http.NewServeMux(),
+		db:          db,
+		authMgr:     authMgr,
+		hlsDir:      hlsDir,
+		mediaDir:    mediaDir,
+		authMid:     middleware.Auth(authMgr),
+		adminMid:    middleware.RequireAdmin,
+		scanner:     scn,
+		scanFunc:    scanFunc,
+		refreshFunc: refreshFunc,
+		syncFunc:    syncFunc,
 	}
 
 	authH := auth.NewHandler(db, authMgr)
@@ -516,6 +520,40 @@ func (r *Router) mountAdmin() {
 			"library":   prog.Library,
 			"last_item": prog.LastItem,
 		})
+	})))
+
+	adminMux.Handle("POST /api/v1/admin/refresh-metadata", a(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if _, err := r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('system', 'Metadata refresh started')`); err != nil {
+			writeError(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("Metadata refresh: panic recovered: %v", rec)
+				}
+			}()
+			r.refreshFunc()
+			r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('system', 'Metadata refresh complete')`)
+		}()
+		writeJSON(w, map[string]string{"status": "metadata refresh started"})
+	})))
+
+	adminMux.Handle("POST /api/v1/admin/sync-tmdb", a(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if _, err := r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('system', 'TMDB sync started')`); err != nil {
+			writeError(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("TMDB sync: panic recovered: %v", rec)
+				}
+			}()
+			r.syncFunc()
+			r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('system', 'TMDB sync complete')`)
+		}()
+		writeJSON(w, map[string]string{"status": "tmdb sync started"})
 	})))
 
 	adminMux.Handle("GET /api/v1/admin/activity", a(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

@@ -1,11 +1,39 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { adminFetch } from '../../api/admin'
+
+function EnrichmentBar({ label, current, total }) {
+  const pct = total > 0 ? Math.round(current / total * 100) : 0
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.78rem', marginBottom: 3 }}>
+        <span style={{ color: 'var(--muted)' }}>{label}</span>
+        <span style={{ color: 'var(--text)' }}>{current}/{total} ({pct}%)</span>
+      </div>
+      <div style={{ height: 5, background: 'var(--surface-container)', borderRadius: 3, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: pct + '%', background: pct === 100 ? 'var(--accent)' : 'var(--primary)', transition: 'width .3s ease', borderRadius: 3 }} />
+      </div>
+    </div>
+  )
+}
+
+function EnrichmentCard({ title, data }) {
+  if (!data || !data.total) return null
+  return (
+    <div style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 16, border: '1px solid rgba(255,255,255,.04)' }}>
+      <h3 style={{ fontSize: '.9rem', fontWeight: 600, marginBottom: 12 }}>{title}</h3>
+      <EnrichmentBar label="TMDB ID" current={data.with_tmdb_id} total={data.total} />
+      <EnrichmentBar label="Poster" current={data.with_poster} total={data.total} />
+      <EnrichmentBar label="Overview" current={data.with_overview} total={data.total} />
+    </div>
+  )
+}
 
 export default function DashboardPage() {
   const [stats, setStats] = useState(null)
   const [activity, setActivity] = useState([])
   const [scanStatus, setScanStatus] = useState(null)
   const [settings, setSettings] = useState(null)
+  const [runningAction, setRunningAction] = useState(null)
 
   useEffect(() => {
     adminFetch('/stats').then(setStats)
@@ -22,6 +50,7 @@ export default function DashboardPage() {
         setScanStatus(data)
         if (!data.running) {
           adminFetch('/stats').then(setStats)
+          setRunningAction(null)
         }
       } catch {}
     }
@@ -31,9 +60,22 @@ export default function DashboardPage() {
   }, [])
 
   const triggerScan = async () => {
+    setRunningAction('scan')
     await adminFetch('/scan', { method: 'POST' })
     setScanStatus({ running: true, current: 0, total: 0, library: '', last_item: '' })
   }
+
+  const triggerRefresh = async () => {
+    setRunningAction('refresh')
+    await adminFetch('/refresh-metadata', { method: 'POST' })
+  }
+
+  const triggerSync = async () => {
+    setRunningAction('sync')
+    await adminFetch('/sync-tmdb', { method: 'POST' })
+  }
+
+  const me = stats?.media
 
   return (
     <div>
@@ -57,13 +99,26 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16, marginBottom: 32 }}>
+        <EnrichmentCard title="Movies Enrichment" data={me?.movies_enrichment} />
+        <EnrichmentCard title="TV Shows Enrichment" data={me?.tv_enrichment} />
+      </div>
+
       <div style={{ marginBottom: 24 }}>
         <p style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: 8 }}>
           Media Directory: {settings?.media_directory || 'Not set'}
         </p>
-        <button className="btn btn-primary" onClick={triggerScan}>
-          Scan Libraries
-        </button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" onClick={triggerScan} disabled={!!runningAction}>
+            {runningAction === 'scan' ? 'Scanning...' : 'Scan Libraries'}
+          </button>
+          <button className="btn btn-primary" onClick={triggerRefresh} disabled={!!runningAction} style={{ background: 'var(--accent)' }}>
+            {runningAction === 'refresh' ? 'Refreshing...' : 'Refresh Metadata'}
+          </button>
+          <button className="btn btn-primary" onClick={triggerSync} disabled={!!runningAction}>
+            {runningAction === 'sync' ? 'Syncing...' : 'Full TMDB Sync'}
+          </button>
+        </div>
 
         {scanStatus?.running && (
           <div style={{ marginTop: 12 }}>

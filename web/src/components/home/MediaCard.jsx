@@ -4,7 +4,7 @@ import { imageUrl } from '../../api/client'
 import { useDetailModal } from '../../context/DetailModalContext'
 import styles from './MediaCard.module.css'
 
-export default function MediaCard({ item, rank, showProgress, isNew, hideTitle }) {
+export default function MediaCard({ item, rank, showProgress, isNew, hideTitle, onClick }) {
   const navigate = useNavigate()
   const { openDetail } = useDetailModal()
   const [expanded, setExpanded] = useState(false)
@@ -38,8 +38,10 @@ export default function MediaCard({ item, rank, showProgress, isNew, hideTitle }
     setExpanded(false)
   }
 
-  const handleClick = () => {
-    openDetail(item)
+  const handleClick = (e) => {
+    e.stopPropagation()
+    if (onClick) onClick(item)
+    else openDetail(item)
   }
 
   const handlePlay = (e) => {
@@ -116,7 +118,6 @@ export default function MediaCard({ item, rank, showProgress, isNew, hideTitle }
         </div>
       )}
 
-      {!expanded && !hideTitle && <div className={styles.title}>{item.title}</div>}
     </div>
   )
 }

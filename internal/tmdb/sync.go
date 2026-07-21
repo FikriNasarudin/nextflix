@@ -21,6 +21,10 @@ func (s *Sync) Start() {
 	go s.run()
 }
 
+func (s *Sync) Trigger() {
+	go s.sync()
+}
+
 func (s *Sync) run() {
 	s.sync()
 	ticker := time.NewTicker(24 * time.Hour)
