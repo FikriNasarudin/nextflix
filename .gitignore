@@ -32,6 +32,9 @@ go.work.sum
 .env
 .env.local
 
+# AI
+.opencode/
+
 # Experimental
 react/
 

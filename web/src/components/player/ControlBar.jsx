@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import styles from './ControlBar.module.css'
 
 function formatTime(seconds) {
@@ -10,44 +10,81 @@ function formatTime(seconds) {
 
 export default function ControlBar({
   playing, currentTime, duration, buffered, volume, muted,
-  playbackRate, isTV,
-  onTogglePlay, onSeek, onVolumeChange, onToggleMute, onSpeedChange,
+  isTV,
+  onTogglePlay, onSeek, onVolumeChange, onToggleMute, onToggleSettings,
   onSkipBack, onSkipForward, onNextEpisode, onPip, onAspectRatio, onFullscreen,
 }) {
   const [isDragging, setIsDragging] = useState(false)
   const progressRef = useRef(null)
+  const dragPct = useRef(0)
 
-  const handleSeek = useCallback((e) => {
+  const getPercent = useCallback((clientX) => {
     const el = progressRef.current
-    if (!el) return
+    if (!el) return 0
     const rect = el.getBoundingClientRect()
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    onSeek(pct * duration)
-  }, [duration, onSeek])
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+  }, [])
 
-  const playedPct = duration > 0 ? (currentTime / duration) * 100 : 0
+  const seekAt = useCallback((clientX) => {
+    const pct = getPercent(clientX)
+    dragPct.current = pct
+    onSeek(pct * duration)
+  }, [duration, onSeek, getPercent])
+
+  const onPointerDown = useCallback((e) => {
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX
+    setIsDragging(true)
+    seekAt(clientX)
+  }, [seekAt])
+
+  useEffect(() => {
+    if (!isDragging) return
+
+    const onMove = (e) => {
+      if (e.touches) e.preventDefault()
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX
+      seekAt(clientX)
+    }
+    const onUp = () => {
+      setIsDragging(false)
+    }
+
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    document.addEventListener('touchmove', onMove, { passive: false })
+    document.addEventListener('touchend', onUp)
+
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend', onUp)
+    }
+  }, [isDragging, seekAt])
+
+  const displayPct = isDragging ? dragPct.current * 100 : (duration > 0 ? (currentTime / duration) * 100 : 0)
   const bufferedPct = duration > 0 ? (buffered / duration) * 100 : 0
   const remaining = duration - currentTime
   const endsAt = new Date(Date.now() + remaining * 1000)
 
-  const speeds = [0.5, 1, 1.25, 1.5, 2]
-
   return (
     <div className={styles.controlBar}>
-      <div className={styles.progressWrap}>
+      <div className={`${styles.progressWrap} ${isDragging ? styles.dragging : ''}`}>
         <div
           className={styles.progressTrack}
           ref={progressRef}
-          onClick={handleSeek}
+          onMouseDown={onPointerDown}
+          onTouchStart={onPointerDown}
         >
           <div className={styles.progressBuffer} style={{ width: bufferedPct + '%' }} />
-          <div className={styles.progressPlayed} style={{ width: playedPct + '%' }} />
+          <div className={styles.progressPlayed} style={{ width: displayPct + '%' }} />
+          <div className={styles.progressThumb} style={{ left: displayPct + '%' }} />
           <input
             type="range"
             className={styles.progressRange}
             min="0"
             max={duration || 100}
-            value={currentTime}
+            value={isDragging ? dragPct.current * duration : currentTime}
             readOnly
           />
         </div>
@@ -104,18 +141,14 @@ export default function ControlBar({
               <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
             </button>
           )}
-          <select
-            className={styles.speed}
-            value={playbackRate}
-            onChange={(e) => onSpeedChange(e.target.value)}
-          >
-            {speeds.map(s => <option key={s} value={s}>{s}x</option>)}
-          </select>
           <button className={styles.btn + ' ' + styles.pipBtn} onClick={onPip} aria-label="Picture in Picture">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/></svg>
           </button>
           <button className={styles.btn + ' ' + styles.ratioBtn} onClick={onAspectRatio} aria-label="Aspect Ratio" title="Aspect Ratio">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-4-4h2v2h-2v-2zm-4 0h2v2h-2v-2zm-2 0h-2v2h2v-2z"/></svg>
+          </button>
+          <button className={styles.btn} onClick={onToggleSettings} aria-label="Settings">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14 12.94a7.07 7.07 0 0 0 .06-.94c0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
           </button>
           <button className={styles.btn} onClick={onFullscreen} aria-label="Fullscreen">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>

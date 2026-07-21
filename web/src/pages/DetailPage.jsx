@@ -32,7 +32,34 @@ export default function DetailPage() {
     },
   })
 
-  if (!allData?.item) {
+  const item = allData?.item
+  const allMedia = allData?.allMedia || []
+  const similar = allData?.similar || []
+  const backdrop = item ? backdropUrl(item.backdrop_path, item.poster_path, item.id) : ''
+  const poster = item ? imageUrl(item.poster_path, item.id, 'poster', 'w500') : ''
+  const isTV = item?.media_type === 'tv'
+  const rating = item?.rating || item?.vote_average
+  const year = item?.release_date ? item.release_date.substring(0, 4) : ''
+  const duration = item?.duration_seconds ? Math.floor(item.duration_seconds / 60) + 'm' : ''
+  const episodes = item?.episode_count ? item.episode_count + ' episodes' : ''
+
+  const seasons = useMemo(() => {
+    if (!isTV || !item?.show_name) return []
+    const showEpisodes = allMedia.filter(
+      m => m.media_type === 'tv' && m.show_name === item.show_name
+    )
+    const seasonSet = new Set(showEpisodes.map(e => e.season_number || 1))
+    return [...seasonSet].sort((a, b) => a - b)
+  }, [isTV, item?.show_name, allMedia])
+
+  const seasonEpisodes = useMemo(() => {
+    if (!isTV || !item?.show_name) return []
+    return allMedia.filter(
+      m => m.media_type === 'tv' && m.show_name === item.show_name && (m.season_number || 1) === selectedSeason
+    ).sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0))
+  }, [isTV, item?.show_name, selectedSeason, allMedia])
+
+  if (!item) {
     return (
       <div style={{ padding: 'var(--space-xxl)', textAlign: 'center', color: 'var(--muted)', minHeight: '60vh' }}>
         <h2>Not Found</h2>
@@ -42,31 +69,6 @@ export default function DetailPage() {
       </div>
     )
   }
-
-  const { item, allMedia, similar } = allData
-  const backdrop = backdropUrl(item.backdrop_path, item.poster_path, item.id)
-  const poster = imageUrl(item.poster_path, item.id, 'poster', 'w500')
-  const isTV = item.media_type === 'tv'
-  const rating = item.rating || item.vote_average
-  const year = item.release_date ? (item.release_date || '').substring(0, 4) : ''
-  const duration = item.duration_seconds ? Math.floor(item.duration_seconds / 60) + 'm' : ''
-  const episodes = item.episode_count ? item.episode_count + ' episodes' : ''
-
-  const seasons = useMemo(() => {
-    if (!isTV || !item.show_name) return []
-    const showEpisodes = allMedia.filter(
-      m => m.media_type === 'tv' && m.show_name === item.show_name
-    )
-    const seasonSet = new Set(showEpisodes.map(e => e.season_number || 1))
-    return [...seasonSet].sort((a, b) => a - b)
-  }, [isTV, item.show_name, allMedia])
-
-  const seasonEpisodes = useMemo(() => {
-    if (!isTV || !item.show_name) return []
-    return allMedia.filter(
-      m => m.media_type === 'tv' && m.show_name === item.show_name && (m.season_number || 1) === selectedSeason
-    ).sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0))
-  }, [isTV, item.show_name, selectedSeason, allMedia])
 
   const handlePlay = () => navigate('/watch/' + item.id)
 

@@ -39,7 +39,7 @@
 .closeBtn {
   background: none;
   border: none;
-  color: #fff;
+  color: var(--text);
   font-size: 1.2rem;
   cursor: pointer;
   padding: 4px;

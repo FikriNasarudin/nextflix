@@ -1,8 +1,8 @@
 import styles from './SettingsDrawer.module.css'
 
 export default function SettingsDrawer({
-  subtitles, audioTracks, playbackRate, selectedSubtitle, selectedAudio,
-  onSelectSubtitle, onSelectAudio, onSpeedChange, onClose,
+  subtitles, audioTracks, selectedSubtitle, selectedAudio,
+  onSelectSubtitle, onSelectAudio, onClose,
 }) {
   return (
     <div className={styles.overlay} onClick={onClose}>
@@ -45,20 +45,6 @@ export default function SettingsDrawer({
             ) : (
               <div className={styles.empty}>No subtitles available</div>
             )}
-          </div>
-          <div className={styles.section}>
-            <div className={styles.sectionTitle}>Playback Speed</div>
-            <select
-              className={styles.select}
-              value={playbackRate}
-              onChange={(e) => onSpeedChange(e.target.value)}
-            >
-              <option value="0.5">0.5x</option>
-              <option value="1">1x</option>
-              <option value="1.25">1.25x</option>
-              <option value="1.5">1.5x</option>
-              <option value="2">2x</option>
-            </select>
           </div>
         </div>
       </div>

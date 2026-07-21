@@ -3,18 +3,20 @@
   bottom: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(transparent 0, rgba(0,0,0,.9) 40%);
+  background: linear-gradient(transparent 0, var(--void) 40%);
   padding: 40px 20px 8px;
   z-index: 10;
   transition: opacity .35s ease;
 }
 .progressWrap { position: relative; height: 20px; margin-bottom: 0; cursor: pointer; }
+.dragging .progressTrack { height: 6px; }
+.dragging .progressThumb { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
 .progressTrack {
   position: relative;
   height: 3px;
   margin: 8px 0 4px;
   border-radius: 2px;
-  background: rgba(255,255,255,.2);
+  background: var(--surface-container-high);
   transition: height .2s ease;
 }
 .progressTrack:hover { height: 5px; }
@@ -23,7 +25,7 @@
   top: 0;
   left: 0;
   height: 100%;
-  background: rgba(255,255,255,.15);
+  background: var(--outline-variant);
   border-radius: 2px;
   transition: width .2s ease;
 }
@@ -37,8 +39,25 @@
   transition: width .1s linear;
   z-index: 1;
 }
+.progressThumb {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--primary);
+  transform: translate(-50%, -50%);
+  z-index: 4;
+  opacity: 0;
+  transition: opacity .15s;
+  pointer-events: none;
+}
+.progressTrack:hover .progressThumb {
+  opacity: 1;
+}
 .progressRange {
   -webkit-appearance: none;
+  appearance: none;
   position: absolute;
   top: 0;
   left: 0;
@@ -52,13 +71,28 @@
   margin: 0;
   pointer-events: none;
 }
+.progressRange::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.progressRange::-moz-range-thumb {
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  border: none;
+}
 .row { display: flex; align-items: center; justify-content: space-between; padding-bottom: 2px; }
 .left, .right { display: flex; align-items: center; gap: 8px; }
 .right { gap: 14px; }
 .btn {
   background: none;
   border: none;
-  color: #fff;
+  color: var(--text);
   cursor: pointer;
   padding: 8px;
   line-height: 1;
@@ -76,40 +110,43 @@
 .skipBtn:hover { opacity: 1; }
 .time {
   font-size: 14px;
-  color: #fff;
+  color: var(--text);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   min-width: 90px;
   font-weight: 500;
 }
-.timeEnd { color: rgba(255,255,255,.6); font-size: 12px; }
-.volumeGroup { display: flex; align-items: center; gap: 6px; }
+.timeEnd { color: var(--muted); font-size: 12px; }
+.volumeGroup { display: flex; align-items: center; gap: 8px; }
 .volumeSlider {
-  width: 0;
+  width: 80px;
   -webkit-appearance: none;
   appearance: none;
-  height: 4px;
-  background: rgba(255,255,255,.25);
-  border-radius: 2px;
+  height: 6px;
+  background: var(--outline-variant);
+  border-radius: 3px;
   outline: none;
   cursor: pointer;
-  transition: width .2s ease;
   accent-color: var(--primary);
 }
-.volumeGroup:hover .volumeSlider, .volumeSlider:focus { width: 80px; }
-.speed {
-  background: rgba(255,255,255,.1);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,.25);
-  border-radius: var(--radius-sm);
-  padding: 4px 8px;
-  font-size: 12px;
+.volumeSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid var(--surface);
   cursor: pointer;
-  font-family: inherit;
-  opacity: .9;
-  transition: opacity .15s;
 }
-.speed:hover { opacity: 1; }
+.volumeSlider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid var(--surface);
+  cursor: pointer;
+}
 .nextBtn { opacity: .85; }
 .nextBtn:hover { opacity: 1; }
 .pipBtn {}
@@ -120,18 +157,15 @@
   .row { gap: 2px; }
   .left { gap: 2px; }
   .right { gap: 6px; }
-  .volumeSlider { display: none; }
-  .volumeGroup:hover .volumeSlider { display: none; }
+  .volumeSlider { width: 60px; }
   .btn { padding: 6px; min-width: 44px; min-height: 44px; }
   .pipBtn { display: none; }
   .timeEnd { display: none; }
   .time { font-size: 11px; min-width: 70px; }
-  .speed { font-size: 10px; padding: 2px 6px; }
   .progressWrap { height: 28px; }
   .progressTrack { height: 5px; }
 }
 @media (max-width: 400px) {
   .time { font-size: 10px; min-width: 62px; }
-  .speed { font-size: 9px; padding: 2px 4px; }
   .btn { min-width: 40px; min-height: 40px; padding: 4px; }
 }

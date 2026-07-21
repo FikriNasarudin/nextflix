@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Hls from 'hls.js'
-import { apiFetch } from '../../api/client'
+import { apiFetch, tokenParam, showToast, isSlowConnection } from '../../api/client'
 import ControlBar from './ControlBar'
 import SettingsDrawer from './SettingsDrawer'
 import EpisodeDrawer from './EpisodeDrawer'
@@ -11,19 +11,22 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
   const containerRef = useRef(null)
   const hlsRef = useRef(null)
   const progressTimer = useRef(null)
+  const subtitleTrackRef = useRef(null)
+  const lastTapRef = useRef({ time: 0, x: 0 })
+  const firstInteractionRef = useRef(false)
 
   const [playing, setPlaying] = useState(true)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(item.duration_seconds || 0)
   const [volume, setVolume] = useState(1)
-  const [muted, setMuted] = useState(false)
+  const [muted, setMuted] = useState(true)
   const [buffered, setBuffered] = useState(0)
+  const [buffering, setBuffering] = useState(false)
   const [showControls, setShowControls] = useState(true)
   const [showInfo, setShowInfo] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
   const [showEpisodes, setShowEpisodes] = useState(false)
   const [showSkipIntro, setShowSkipIntro] = useState(false)
-  const [playbackRate, setPlaybackRate] = useState(1)
   const [aspectRatio, setAspectRatio] = useState('contain')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [nextEpCountdown, setNextEpCountdown] = useState(null)
@@ -32,9 +35,13 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
   const [audioTracks, setAudioTracks] = useState([])
   const [selectedSubtitle, setSelectedSubtitle] = useState(null)
   const [selectedAudio, setSelectedAudio] = useState(null)
-  const [streamType, setStreamType] = useState('auto')
 
   const hideTimer = useRef(null)
+  const allMediaRef = useRef(allMedia)
+  const onEpisodeSelectRef = useRef(onEpisodeSelect)
+
+  useEffect(() => { allMediaRef.current = allMedia }, [allMedia])
+  useEffect(() => { onEpisodeSelectRef.current = onEpisodeSelect }, [onEpisodeSelect])
 
   const resetHideTimer = useCallback(() => {
     setShowControls(true)
@@ -50,19 +57,6 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
     const video = videoRef.current
     if (!video || !item?.id) return
 
-    if (streamType === 'hls') {
-      if (Hls.isSupported()) {
-        const hls = new Hls()
-        hls.loadSource('/api/v1/hls/' + item.id + '/index.m3u8')
-        hls.attachMedia(video)
-        hlsRef.current = hls
-      }
-    } else if (streamType === 'remux') {
-      video.src = '/api/v1/remux/' + item.id
-    } else {
-      video.src = '/api/v1/stream/' + item.id
-    }
-
     try {
       const [subs, audios] = await Promise.all([
         apiFetch('/media/' + item.id + '/subtitles'),
@@ -71,7 +65,73 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
       if (subs) setSubtitles(subs)
       if (audios) setAudioTracks(audios)
     } catch {}
-  }, [item, streamType])
+
+    const slow = isSlowConnection()
+    const modes = item.hls_path
+      ? (slow ? ['hls', 'remux'] : ['direct', 'remux', 'hls'])
+      : (slow ? ['remux'] : ['direct', 'remux'])
+
+    let currentIdx = 0
+    let generation = 0
+
+    function trySource() {
+      if (currentIdx >= modes.length) {
+        showToast('No playable source found. The file format may not be supported.', 'error')
+        return
+      }
+      const mode = modes[currentIdx]
+      currentIdx++
+      const gen = ++generation
+
+      if (mode === 'hls') {
+        if (Hls.isSupported()) {
+          if (hlsRef.current) hlsRef.current.destroy()
+          const hls = new Hls()
+          hls.loadSource('/api/v1/hls/' + item.id + '/index.m3u8' + tokenParam())
+          hls.attachMedia(video)
+          hlsRef.current = hls
+          hls.on(Hls.Events.ERROR, (event, data) => {
+            if (data.fatal && gen === generation) {
+              hls.destroy()
+              hlsRef.current = null
+              trySource()
+            }
+          })
+        }
+        video.play().catch(() => {})
+        return
+      }
+
+      const url = (mode === 'direct'
+        ? '/api/v1/stream/' + item.id
+        : '/api/v1/remux/' + item.id) + tokenParam()
+
+      video.onerror = null
+      video.src = url
+
+      let fallbackTimer
+      video.onerror = function () {
+        if (gen !== generation) return
+        clearTimeout(fallbackTimer)
+        trySource()
+      }
+
+      if (mode === 'remux') {
+        fallbackTimer = setTimeout(() => {
+          if (gen !== generation) return
+          trySource()
+        }, 10000)
+        const clearFallback = () => clearTimeout(fallbackTimer)
+        video.addEventListener('loadeddata', clearFallback, { once: true })
+        video.addEventListener('canplay', clearFallback, { once: true })
+      }
+
+      video.load()
+      video.play().catch(() => {})
+    }
+
+    trySource()
+  }, [item])
 
   useEffect(() => {
     initStream()
@@ -82,6 +142,40 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
       }
     }
   }, [initStream])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.volume = volume
+    video.muted = muted
+  }, [])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || firstInteractionRef.current) return
+    const handler = () => {
+      if (firstInteractionRef.current) return
+      firstInteractionRef.current = true
+      const video = videoRef.current
+      if (video) {
+        video.muted = false
+        video.volume = volume
+        setMuted(false)
+        if (video.paused) video.play().catch(() => {})
+      }
+      el.removeEventListener('click', handler)
+      el.removeEventListener('touchstart', handler)
+      el.removeEventListener('keydown', handler)
+    }
+    el.addEventListener('click', handler)
+    el.addEventListener('touchstart', handler)
+    el.addEventListener('keydown', handler)
+    return () => {
+      el.removeEventListener('click', handler)
+      el.removeEventListener('touchstart', handler)
+      el.removeEventListener('keydown', handler)
+    }
+  }, [volume])
 
   useEffect(() => {
     const video = videoRef.current
@@ -101,8 +195,16 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
         handleNextEpisode()
       }
     }
-    const onPlay = () => setPlaying(true)
+    const onPlay = () => { setPlaying(true); setBuffering(false) }
     const onPause = () => setPlaying(false)
+    const onWaiting = () => setBuffering(true)
+    const onCanPlay = () => setBuffering(false)
+    const onSeeking = () => setBuffering(true)
+    const onSeeked = () => setBuffering(false)
+    const onVolumeChangeEvent = () => {
+      setVolume(video.volume)
+      setMuted(video.muted)
+    }
 
     video.addEventListener('timeupdate', onTimeUpdate)
     video.addEventListener('durationchange', onDurationChange)
@@ -110,8 +212,12 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
     video.addEventListener('ended', onEnded)
     video.addEventListener('play', onPlay)
     video.addEventListener('pause', onPause)
+    video.addEventListener('waiting', onWaiting)
+    video.addEventListener('canplay', onCanPlay)
+    video.addEventListener('seeking', onSeeking)
+    video.addEventListener('seeked', onSeeked)
+    video.addEventListener('volumechange', onVolumeChangeEvent)
 
-    // Save progress every 5 seconds
     progressTimer.current = setInterval(() => {
       if (video.currentTime > 0 && item?.id) {
         apiFetch('/progress', {
@@ -127,7 +233,6 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
       }
     }, 5000)
 
-    // Skip intro detection
     const checkSkip = () => {
       if (item.media_type === 'tv' && video.currentTime >= 10 && video.currentTime < 85) {
         setShowSkipIntro(true)
@@ -144,10 +249,85 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
       video.removeEventListener('ended', onEnded)
       video.removeEventListener('play', onPlay)
       video.removeEventListener('pause', onPause)
+      video.removeEventListener('waiting', onWaiting)
+      video.removeEventListener('canplay', onCanPlay)
+      video.removeEventListener('seeking', onSeeking)
+      video.removeEventListener('seeked', onSeeked)
+      video.removeEventListener('volumechange', onVolumeChangeEvent)
       video.removeEventListener('timeupdate', checkSkip)
       clearInterval(progressTimer.current)
     }
   }, [item])
+
+  // Wire selected subtitle as a <track> element
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    if (subtitleTrackRef.current) {
+      subtitleTrackRef.current.track.mode = 'disabled'
+      subtitleTrackRef.current = null
+    }
+
+    const sub = subtitles.find(s => String(s.id) === String(selectedSubtitle))
+    if (!sub) return
+
+    const existing = video.querySelector('track[data-subtitle-id="' + sub.id + '"]')
+    if (existing) {
+      existing.track.mode = 'showing'
+      subtitleTrackRef.current = existing
+      return
+    }
+
+    const track = document.createElement('track')
+    track.setAttribute('data-subtitle-id', sub.id)
+    track.kind = 'subtitles'
+    track.label = sub.language || 'Subtitles'
+    track.srclang = sub.language || 'und'
+    track.src = '/api/v1/subtitle/' + sub.id + '/file' + tokenParam()
+    track.addEventListener('load', function onLoad() {
+      this.track.mode = 'showing'
+    })
+    video.appendChild(track)
+    subtitleTrackRef.current = track
+  }, [selectedSubtitle, subtitles])
+
+  // Wire selected audio track
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || selectedAudio == null) return
+
+    if (selectedAudio.startsWith('hls-')) {
+      const idx = parseInt(selectedAudio.replace('hls-', ''), 10)
+      if (hlsRef.current && hlsRef.current.audioTrack !== undefined) {
+        hlsRef.current.audioTrack = idx
+      }
+      return
+    }
+
+    if (selectedAudio.startsWith('ext-')) {
+      const idx = parseInt(selectedAudio.replace('ext-', ''), 10)
+      const track = audioTracks[idx]
+      if (!track) return
+      if (video.audioTracks && video.audioTracks.length > 1) {
+        for (let i = 0; i < video.audioTracks.length; i++) {
+          video.audioTracks[i].enabled = (i === track.stream_index)
+        }
+        return
+      }
+      if (hlsRef.current && hlsRef.current.audioTracks && hlsRef.current.audioTracks.length > 1) {
+        const lang = (track.language || '').toLowerCase()
+        const title = (track.title || '').toLowerCase()
+        for (let i = 0; i < hlsRef.current.audioTracks.length; i++) {
+          const at = hlsRef.current.audioTracks[i]
+          if (at.lang === lang || (at.name && at.name.toLowerCase() === title)) {
+            hlsRef.current.audioTrack = i
+            return
+          }
+        }
+      }
+    }
+  }, [selectedAudio, audioTracks])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -158,7 +338,7 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
         case ' ':
         case 'k':
           e.preventDefault()
-          if (v.paused) v.play()
+          if (v.paused) v.play().catch(() => {})
           else v.pause()
           break
         case 'f':
@@ -189,10 +369,6 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
           e.preventDefault()
           handleSkipIntro()
           break
-        case 'l':
-          e.preventDefault()
-          cycleSpeed()
-          break
         default:
           if (e.key >= '0' && e.key <= '9') {
             e.preventDefault()
@@ -207,7 +383,7 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
   const togglePlay = () => {
     const v = videoRef.current
     if (!v) return
-    if (v.paused) v.play()
+    if (v.paused) v.play().catch(() => {})
     else v.pause()
   }
 
@@ -222,25 +398,36 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
     setIsFullscreen(!isFullscreen)
   }
 
+  const handleTouchEnd = (e) => {
+    const v = videoRef.current
+    if (!v) return
+
+    const now = Date.now()
+    const touch = e.changedTouches[0]
+    const rect = e.target.getBoundingClientRect()
+    const x = touch.clientX - rect.left
+    const last = lastTapRef.current
+
+    if (now - last.time < 300) {
+      e.preventDefault()
+      const half = rect.width / 2
+      if (x < half) {
+        v.currentTime = Math.max(0, v.currentTime - 10)
+      } else {
+        v.currentTime = Math.min(v.duration, v.currentTime + 10)
+      }
+      lastTapRef.current = { time: 0, x: 0 }
+    } else {
+      lastTapRef.current = { time: now, x }
+    }
+  }
+
   const handleSkipIntro = () => {
     const v = videoRef.current
     if (v) {
       v.currentTime = 85
       setShowSkipIntro(false)
     }
-  }
-
-  const cycleSpeed = () => {
-    const speeds = [0.5, 1, 1.25, 1.5, 2]
-    const currentIdx = speeds.indexOf(playbackRate)
-    const next = speeds[(currentIdx + 1) % speeds.length]
-    setPlaybackRate(next)
-    if (videoRef.current) videoRef.current.playbackRate = next
-  }
-
-  const handleSpeedChange = (speed) => {
-    setPlaybackRate(parseFloat(speed))
-    if (videoRef.current) videoRef.current.playbackRate = parseFloat(speed)
   }
 
   const handleVolumeChange = (v) => {
@@ -253,12 +440,24 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
   }
 
   const toggleMute = () => {
-    setMuted(prev => !prev)
-    if (videoRef.current) videoRef.current.muted = !muted
+    const video = videoRef.current
+    if (!video) return
+    const newMuted = !video.muted
+    video.muted = newMuted
+    setMuted(newMuted)
   }
 
   const handleSeek = (time) => {
     if (videoRef.current) videoRef.current.currentTime = time
+  }
+
+  const handleReplay = () => {
+    const v = videoRef.current
+    if (!v) return
+    v.currentTime = 0
+    v.play().catch(() => {})
+    setShowMovieEnd(false)
+    setPlaying(true)
   }
 
   const handleClose = () => {
@@ -268,7 +467,9 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
 
   const handleNextEpisode = () => {
     if (item.media_type !== 'tv' || !item.show_name) return
-    const showEps = allMedia
+    const currentAllMedia = allMediaRef.current
+    const selectEp = onEpisodeSelectRef.current
+    const showEps = currentAllMedia
       .filter(m => m.media_type === 'tv' && m.show_name === item.show_name)
       .sort((a, b) => (a.season_number || 0) - (b.season_number || 0) || (a.episode_number || 0) - (b.episode_number || 0))
     const currentIdx = showEps.findIndex(e => e.id === item.id)
@@ -281,7 +482,7 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
         if (countdown <= 0) {
           clearInterval(timer)
           setNextEpCountdown(null)
-          onEpisodeSelect(next)
+          selectEp(next)
         } else {
           setNextEpCountdown({ item: next, seconds: countdown })
         }
@@ -324,18 +525,20 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
             style={{ objectFit: aspectRatio }}
             autoPlay
             playsInline
+            muted
+            crossOrigin="anonymous"
             onClick={togglePlay}
             onMouseMove={resetHideTimer}
+            onTouchEnd={handleTouchEnd}
           />
+
+          {buffering && <div className={styles.loadingSpinner} />}
 
           <div className={`${styles.topOverlay} ${showControls ? styles.visible : ''}`}>
             <button className={styles.back} onClick={handleClose}>← Back to Browse</button>
             <div className={styles.topRight}>
               <span className={styles.playerTitle}>{item.title}</span>
               {isTV && <button className={styles.qualityBtn} onClick={() => setShowEpisodes(true)}>Episodes</button>}
-              <button className={styles.settingsBtn} onClick={() => setShowSettings(true)} aria-label="Settings">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14 12.94a7.07 7.07 0 0 0 .06-.94c0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
-              </button>
             </div>
           </div>
 
@@ -386,9 +589,14 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
                   />
                 ))}
               </div>
-              <button className={styles.qualityBtn} style={{ marginTop: 16 }} onClick={handleClose}>
-                Back to Browse
-              </button>
+              <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+                <button className={styles.qualityBtn} onClick={handleReplay}>
+                  Replay
+                </button>
+                <button className={styles.qualityBtn} onClick={handleClose}>
+                  Back to Browse
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -400,13 +608,12 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
           buffered={buffered}
           volume={volume}
           muted={muted}
-          playbackRate={playbackRate}
           isTV={isTV}
           onTogglePlay={togglePlay}
           onSeek={handleSeek}
           onVolumeChange={handleVolumeChange}
           onToggleMute={toggleMute}
-          onSpeedChange={handleSpeedChange}
+          onToggleSettings={() => setShowSettings(true)}
           onSkipBack={() => videoRef.current && (videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10))}
           onSkipForward={() => videoRef.current && (videoRef.current.currentTime = Math.min(videoRef.current.duration, videoRef.current.currentTime + 10))}
           onNextEpisode={handleNextEpisode}
@@ -420,12 +627,10 @@ export default function PlayerOverlay({ item, allMedia, similarItems, onClose, o
         <SettingsDrawer
           subtitles={subtitles}
           audioTracks={audioTracks}
-          playbackRate={playbackRate}
           selectedSubtitle={selectedSubtitle}
           selectedAudio={selectedAudio}
           onSelectSubtitle={setSelectedSubtitle}
           onSelectAudio={setSelectedAudio}
-          onSpeedChange={handleSpeedChange}
           onClose={() => setShowSettings(false)}
         />
       )}
