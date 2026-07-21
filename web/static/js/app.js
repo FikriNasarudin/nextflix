@@ -94,7 +94,7 @@ let billboardItems = [];
 /* ===== Load All Data ===== */
 async function loadAll() {
   const [media, progress, trending, libraries, collections, recommendations] = await Promise.all([
-    NextflixAPI.fetch('/media'),
+    NextflixAPI.fetch('/media?limit=500'),
     NextflixAPI.fetch('/progress', { skipCache: true }),
     NextflixAPI.fetch('/trending'),
     NextflixAPI.fetch('/libraries'),

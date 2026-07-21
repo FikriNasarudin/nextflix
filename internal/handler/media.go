@@ -125,7 +125,17 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var total int
-	h.db.QueryRow(`SELECT COUNT(*) FROM media_items`).Scan(&total)
+	countQuery := `SELECT COUNT(*) FROM media_items mi WHERE 1=1`
+	countArgs := []any{}
+	if hasLibraryRestriction {
+		countQuery += ` AND mi.library_id IN (SELECT library_id FROM profile_library_access WHERE profile_id = ?)`
+		countArgs = append(countArgs, profileID)
+	}
+	if maxRating != "" {
+		countQuery += ` AND (mi.rating = '' OR mi.rating <= ?)`
+		countArgs = append(countArgs, maxRating)
+	}
+	h.db.QueryRow(countQuery, countArgs...).Scan(&total)
 
 	writeJSON(w, map[string]any{
 		"items": items,
