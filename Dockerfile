@@ -19,6 +19,13 @@ EXPOSE 8080
 
 VOLUME ["/data", "/media"]
 
+# Data directory structure (mirrors Jellyfin):
+#   /data/media.db              — SQLite database
+#   /data/metadata/library/      — Per-item metadata + images (sharded by ID)
+#   /data/images/tmdb/           — Shared TMDB image cache
+#   /data/collections/           — Collection JSON files
+#   /data/transcodes/            — HLS transcoded output
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD wget -qO- http://localhost:8080/ || exit 1
 

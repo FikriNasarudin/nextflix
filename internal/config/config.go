@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -21,6 +22,14 @@ type Config struct {
 	Encoder      EncoderConfig      `yaml:"encoder"`
 	Integrations IntegrationsConfig `yaml:"integrations"`
 	UI           UIConfig           `yaml:"ui"`
+	Data         DataConfig         `yaml:"data"`
+}
+
+type DataConfig struct {
+	Dir             string `yaml:"dir"`              // Jellyfin: ProgramDataPath
+	MetadataDir     string `yaml:"metadata_dir"`     // Jellyfin: InternalMetadataPath
+	ImageCacheDir   string `yaml:"image_cache_dir"`  // TMDB image cache
+	CollectionsDir  string `yaml:"collections_dir"`  // Collection JSON files
 }
 
 type ServerConfig struct {
@@ -30,25 +39,25 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Driver       string `yaml:"driver"`
-	Path         string `yaml:"path"`
-	BusyTimeoutMs int   `yaml:"busy_timeout_ms"`
-	JournalMode  string `yaml:"journal_mode"`
-	Synchronous  string `yaml:"synchronous"`
+	Driver        string `yaml:"driver"`
+	Path          string `yaml:"path"`
+	BusyTimeoutMs int    `yaml:"busy_timeout_ms"`
+	JournalMode   string `yaml:"journal_mode"`
+	Synchronous   string `yaml:"synchronous"`
 }
 
 type ScannerConfig struct {
-	MediaDir              string `yaml:"media_dir"`
-	MaxConcurrentFFprobes int    `yaml:"max_concurrent_ffprobes"`
-	ScanBatchSize         int    `yaml:"scan_batch_size"`
-	EnableFilesystemWatcher bool `yaml:"enable_filesystem_watcher"`
+	MediaDir               string `yaml:"media_dir"`
+	MaxConcurrentFFprobes  int    `yaml:"max_concurrent_ffprobes"`
+	ScanBatchSize          int    `yaml:"scan_batch_size"`
+	EnableFilesystemWatcher bool  `yaml:"enable_filesystem_watcher"`
 }
 
 type EncoderConfig struct {
-	EnableAuto480pHLS     bool   `yaml:"enable_auto_480p_hls"`
-	HLSSegmentDurationSec int    `yaml:"hls_segment_duration_sec"`
-	FFmpegPreset          string `yaml:"ffmpeg_preset"`
-	HLSOutputDir          string `yaml:"hls_output_dir"`
+	EnableAuto480pHLS      bool   `yaml:"enable_auto_480p_hls"`
+	HLSSegmentDurationSec  int    `yaml:"hls_segment_duration_sec"`
+	FFmpegPreset           string `yaml:"ffmpeg_preset"`
+	HLSOutputDir           string `yaml:"hls_output_dir"`
 }
 
 type IntegrationsConfig struct {
@@ -68,23 +77,29 @@ func Defaults() *Config {
 			WriteTimeoutSec: 30,
 		},
 		Database: DatabaseConfig{
-			Driver:       "sqlite3",
-			Path:         "./data/media.db",
+			Driver:        "sqlite3",
+			Path:          "./data/media.db",
 			BusyTimeoutMs: 5000,
-			JournalMode:  "WAL",
-			Synchronous:  "NORMAL",
+			JournalMode:   "WAL",
+			Synchronous:   "NORMAL",
 		},
 		Scanner: ScannerConfig{
-			MediaDir:              "./media",
-			MaxConcurrentFFprobes: 2,
-			ScanBatchSize:         50,
+			MediaDir:               "./media",
+			MaxConcurrentFFprobes:  2,
+			ScanBatchSize:          50,
 			EnableFilesystemWatcher: true,
 		},
 		Encoder: EncoderConfig{
 			EnableAuto480pHLS:     true,
 			HLSSegmentDurationSec: 4,
 			FFmpegPreset:          "ultrafast",
-			HLSOutputDir:          "./data/hls",
+			HLSOutputDir:          "./data/transcodes",
+		},
+		Data: DataConfig{
+			Dir:            "./data",
+			MetadataDir:    "./data/metadata/library",
+			ImageCacheDir:  "./data/images/tmdb",
+			CollectionsDir: "./data/collections",
 		},
 		UI: UIConfig{
 			Theme:    "dark",
@@ -112,7 +127,25 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	cfg.resolveDirs()
+
 	return cfg, nil
+}
+
+func (c *Config) resolveDirs() {
+	dbDir := filepath.Dir(c.Database.Path)
+	if c.Data.Dir == "" || c.Data.Dir == "./data" {
+		c.Data.Dir = dbDir
+	}
+	if c.Data.MetadataDir == "" {
+		c.Data.MetadataDir = filepath.Join(c.Data.Dir, "metadata", "library")
+	}
+	if c.Data.ImageCacheDir == "" {
+		c.Data.ImageCacheDir = filepath.Join(c.Data.Dir, "images", "tmdb")
+	}
+	if c.Data.CollectionsDir == "" {
+		c.Data.CollectionsDir = filepath.Join(c.Data.Dir, "collections")
+	}
 }
 
 func (c *Config) validate() error {
@@ -128,7 +161,7 @@ func (c *Config) validate() error {
 		errs = append(errs, "scanner.media_dir is required")
 	}
 	if c.Encoder.HLSOutputDir == "" {
-		errs = append(errs, "encoder.hls_output_dir is required")
+		c.Encoder.HLSOutputDir = filepath.Join(c.Data.Dir, "transcodes")
 	}
 	if c.Integrations.TmdbAPIKey == "" || placeholderAPIKeys[c.Integrations.TmdbAPIKey] {
 		log.Println("[WARN] integrations.tmdb_api_key is not set — TMDB sync will be disabled")

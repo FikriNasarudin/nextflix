@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"nextflix/internal/config"
+	"nextflix/internal/resolver"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -41,7 +42,7 @@ type ProbeStream struct {
 
 type ProbeResult struct {
 	Streams []ProbeStream `json:"streams"`
-	Format struct {
+	Format  struct {
 		Duration string `json:"duration"`
 		Size     string `json:"size"`
 	} `json:"format"`
@@ -103,13 +104,16 @@ func (p *ScanProgress) setLastItem(item string) {
 	p.LastItem = item
 }
 
+type ProcessFunc func(path string) *resolver.ResolveResult
+
 type Scanner struct {
-	db            *sql.DB
-	cfg           config.ScannerConfig
-	probeSem      chan struct{}
-	encoderCh     chan<- EncoderJob
-	progress      *ScanProgress
-	imageCacheDir string
+	db        *sql.DB
+	cfg       config.ScannerConfig
+	opts      *resolver.NamingOptions
+	probeSem  chan struct{}
+	encoderCh chan<- EncoderJob
+	progress  *ScanProgress
+	imageDir  string
 }
 
 var videoExts = map[string]bool{
@@ -122,17 +126,18 @@ var videoExts = map[string]bool{
 	".m4v":  true,
 }
 
-func New(db *sql.DB, cfg config.ScannerConfig, encoderCh chan<- EncoderJob, imageCacheDir string) *Scanner {
-	if imageCacheDir == "" {
-		imageCacheDir = "./data/images"
+func New(db *sql.DB, cfg config.ScannerConfig, opts *resolver.NamingOptions, encoderCh chan<- EncoderJob, imageDir string) *Scanner {
+	if imageDir == "" {
+		imageDir = "./data/images"
 	}
 	return &Scanner{
-		db:            db,
-		cfg:           cfg,
-		probeSem:      make(chan struct{}, cfg.MaxConcurrentFFprobes),
-		encoderCh:     encoderCh,
-		progress:      &ScanProgress{},
-		imageCacheDir: imageCacheDir,
+		db:        db,
+		cfg:       cfg,
+		opts:      opts,
+		probeSem:  make(chan struct{}, cfg.MaxConcurrentFFprobes),
+		encoderCh: encoderCh,
+		progress:  &ScanProgress{},
+		imageDir:  imageDir,
 	}
 }
 
@@ -140,7 +145,13 @@ func (s *Scanner) Progress() ScanProgress {
 	return s.progress.Snapshot()
 }
 
-func (s *Scanner) ScanAll() {
+func (s *Scanner) IsRunning() bool {
+	s.progress.mu.Lock()
+	defer s.progress.mu.Unlock()
+	return s.progress.Running
+}
+
+func (s *Scanner) ScanAll(resolve ProcessFunc) {
 	s.progress.setRunning(true)
 	s.progress.setCurrent(0)
 	s.progress.setTotal(0)
@@ -169,7 +180,7 @@ func (s *Scanner) ScanAll() {
 				return nil
 			}
 			ext := strings.ToLower(filepath.Ext(path))
-			if !videoExts[ext] {
+			if !s.isVideoExt(ext) {
 				return nil
 			}
 			files = append(files, path)
@@ -180,8 +191,18 @@ func (s *Scanner) ScanAll() {
 	s.progress.setTotal(len(files))
 
 	for i, path := range files {
-		libID, mediaType := s.resolveLibrary(path)
-		s.processFile(path, libID, mediaType)
+		result := resolve(path)
+		if result == nil {
+			continue
+		}
+
+		libID, _ := s.resolveLibrary(path)
+		mediaType := result.MediaType
+		if mediaType == "" {
+			_, mediaType = s.resolveLibrary(path)
+		}
+
+		s.processFile(path, libID, mediaType, result)
 		s.progress.setLastItem(filepath.Base(path))
 		s.progress.setCurrent(i + 1)
 	}
@@ -195,6 +216,21 @@ type libraryInfo struct {
 	id        int64
 	name      string
 	mediaType string
+}
+
+func (s *Scanner) isVideoExt(ext string) bool {
+	if videoExts[ext] {
+		return true
+	}
+	if s.opts != nil {
+		for _, ve := range s.opts.VideoFileExtensions {
+			if strings.EqualFold(ext, "."+strings.TrimPrefix(ve, ".")) ||
+				strings.EqualFold(ext, ve) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func titleCase(s string) string {
@@ -236,14 +272,14 @@ func (s *Scanner) ensureLibraries() map[string]libraryInfo {
 	rows, err := s.db.Query(`SELECT id, library_dir FROM libraries WHERE library_dir != ''`)
 	if err == nil {
 		defer rows.Close()
-	for rows.Next() {
+		for rows.Next() {
 			var id int64
 			var dir string
 			if err := rows.Scan(&id, &dir); err != nil {
 				continue
 			}
 			existing[dir] = id
-			}
+		}
 	}
 
 	result := make(map[string]libraryInfo)
@@ -280,7 +316,7 @@ func (s *Scanner) ensureLibraries() map[string]libraryInfo {
 	return result
 }
 
-func (s *Scanner) Watch() {
+func (s *Scanner) Watch(resolve ProcessFunc) {
 	if !s.cfg.EnableFilesystemWatcher {
 		return
 	}
@@ -333,7 +369,7 @@ func (s *Scanner) Watch() {
 				}
 
 				ext := strings.ToLower(filepath.Ext(event.Name))
-				if !videoExts[ext] {
+				if !s.isVideoExt(ext) {
 					continue
 				}
 
@@ -349,8 +385,19 @@ func (s *Scanner) Watch() {
 				}
 
 				time.AfterFunc(3*time.Second, func() {
-					libID, mediaType := s.resolveLibrary(event.Name)
-					s.processFile(event.Name, libID, mediaType)
+					if resolve == nil {
+						return
+					}
+					result := resolve(event.Name)
+					if result == nil {
+						return
+					}
+					libID, libMediaType := s.resolveLibrary(event.Name)
+					mediaType := result.MediaType
+					if mediaType == "" {
+						mediaType = libMediaType
+					}
+					s.processFile(event.Name, libID, mediaType, result)
 				})
 
 			case err, ok := <-watcher.Errors:
@@ -390,7 +437,7 @@ func (s *Scanner) resolveLibrary(path string) (int64, string) {
 	return libID, mediaTypeForLibrary(dirName)
 }
 
-func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
+func (s *Scanner) processFile(path string, libraryID int64, mediaType string, result *resolver.ResolveResult) {
 	s.probeSem <- struct{}{}
 	defer func() { <-s.probeSem }()
 
@@ -408,15 +455,15 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 		return
 	}
 
-	result, err := probeFile(path)
+	probeResult, err := probeFile(path)
 	if err != nil {
 		log.Printf("Scanner: probe failed %s: %v", path, err)
 		return
 	}
 
 	var duration int
-	if result.Format.Duration != "" && result.Format.Duration != "N/A" {
-		if d, err := strconv.ParseFloat(result.Format.Duration, 64); err == nil {
+	if probeResult.Format.Duration != "" && probeResult.Format.Duration != "N/A" {
+		if d, err := strconv.ParseFloat(probeResult.Format.Duration, 64); err == nil {
 			duration = int(d)
 		}
 	}
@@ -424,52 +471,75 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 		duration = probeFallbackDuration(path)
 	}
 
-	parsed := ParseMedia(path, mediaType, s.cfg.MediaDir)
+	tmdbID := result.TmdbID
+	showName := result.ShowName
+	seasonNumber := result.SeasonNumber
+	episodeNumber := result.EpisodeNumber
+	episodeEnd := result.EpisodeEnd
+	episodeTitle := result.EpisodeTitle
+	year := result.Year
 
-	if mediaType == "movie" {
-		parsed = s.parseMovieFromDir(path, parsed)
+	title := ""
+	if result.Item != nil {
+		title = result.Item.Title
 	}
-
-	parsed.TmdbID = s.resolveTmdbID(path, parsed, mediaType)
+	if title == "" {
+		title = filepath.Base(path)
+	}
 
 	groupID := s.resolveGroupID(path, libraryID)
-	parsed.GroupID = groupID
-
-	episodes := []ParsedMedia{parsed}
-	if parsed.EpisodeEnd > parsed.EpisodeNumber && parsed.SeasonNumber > 0 {
-		end := parsed.EpisodeEnd
-		if end - parsed.EpisodeNumber > 100 {
-			end = parsed.EpisodeNumber + 100
-		}
-		episodes = nil
-		for ep := parsed.EpisodeNumber; ep <= end; ep++ {
-			e := parsed
-			e.EpisodeNumber = ep
-			e.EpisodeEnd = 0
-			e.Title = fmt.Sprintf("%s S%02dE%02d", parsed.ShowName, parsed.SeasonNumber, ep)
-			episodes = append(episodes, e)
-		}
-	}
-
-	tmdbID := parsed.TmdbID
 
 	if existingID > 0 {
 		s.db.Exec(`UPDATE media_items SET duration_seconds = ? WHERE file_path = ?`, duration, path)
-		log.Printf("Scanner: updated duration for %s (path=%s, duration=%ds)", parsed.Title, path, duration)
+		log.Printf("Scanner: updated duration for %s (path=%s, duration=%ds)", title, path, duration)
 		return
 	}
 
+	type insertArgs struct {
+		title         string
+		showName      string
+		seasonNumber  int
+		episodeNumber int
+		episodeTitle  string
+	}
+
+	var episodes []insertArgs
+
+	if episodeEnd > episodeNumber && seasonNumber > 0 {
+		end := episodeEnd
+		if end-episodeNumber > 100 {
+			end = episodeNumber + 100
+		}
+		for ep := episodeNumber; ep <= end; ep++ {
+			epTitle := fmt.Sprintf("%s S%02dE%02d", showName, seasonNumber, ep)
+			episodes = append(episodes, insertArgs{
+				title:         epTitle,
+				showName:      showName,
+				seasonNumber:  seasonNumber,
+				episodeNumber: ep,
+				episodeTitle:  "",
+			})
+		}
+	} else {
+		episodes = append(episodes, insertArgs{
+			title:         title,
+			showName:      showName,
+			seasonNumber:  seasonNumber,
+			episodeNumber: episodeNumber,
+			episodeTitle:  episodeTitle,
+		})
+	}
+
 	for _, ep := range episodes {
-		title := ep.Title
 		var insertSQL string
 		var insertArgs []any
 
 		if libraryID > 0 {
 			insertSQL = `INSERT INTO media_items (library_id, title, file_path, duration_seconds, media_type, show_name, season_number, episode_number, episode_title, year, tmdb_id, group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-			insertArgs = []any{libraryID, title, path, duration, mediaType, ep.ShowName, ep.SeasonNumber, ep.EpisodeNumber, ep.EpisodeTitle, ep.Year, tmdbID, groupID}
+			insertArgs = []any{libraryID, ep.title, path, duration, mediaType, ep.showName, ep.seasonNumber, ep.episodeNumber, ep.episodeTitle, year, tmdbID, groupID}
 		} else {
 			insertSQL = `INSERT INTO media_items (title, file_path, duration_seconds, media_type, show_name, season_number, episode_number, episode_title, year, tmdb_id, group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-			insertArgs = []any{title, path, duration, mediaType, ep.ShowName, ep.SeasonNumber, ep.EpisodeNumber, ep.EpisodeTitle, ep.Year, tmdbID, groupID}
+			insertArgs = []any{ep.title, path, duration, mediaType, ep.showName, ep.seasonNumber, ep.episodeNumber, ep.episodeTitle, year, tmdbID, groupID}
 		}
 
 		res, err := s.db.Exec(insertSQL, insertArgs...)
@@ -479,87 +549,23 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string) {
 		}
 
 		id, _ := res.LastInsertId()
-		log.Printf("Scanner: added %s (id=%d, library=%d, type=%s, duration=%ds)", title, id, libraryID, mediaType, duration)
+		log.Printf("Scanner: added %s (id=%d, library=%d, type=%s, duration=%ds)", ep.title, id, libraryID, mediaType, duration)
 
-		select {
-		case s.encoderCh <- EncoderJob{MediaID: id, FilePath: path}:
-		default:
-			log.Printf("Scanner: encoder queue full, skipping encode for media %d", id)
+		if s.encoderCh != nil {
+			select {
+			case s.encoderCh <- EncoderJob{MediaID: id, FilePath: path}:
+			default:
+				log.Printf("Scanner: encoder queue full, skipping encode for media %d", id)
+			}
 		}
 
-		if !s.detectLocalImages(id, path, ep.ShowName, ep.SeasonNumber, mediaType) {
+		if !s.detectLocalImages(id, path, ep.showName, ep.seasonNumber, mediaType) {
 			s.extractEmbeddedCover(id, path)
 		}
 
 		s.detectSubtitles(id, path)
-		s.storeAudioTracks(id, result.Streams)
+		s.storeAudioTracks(id, probeResult.Streams)
 	}
-}
-
-func (s *Scanner) parseMovieFromDir(path string, fallback ParsedMedia) ParsedMedia {
-	dir := filepath.Dir(path)
-	rel, err := filepath.Rel(s.cfg.MediaDir, dir)
-	if err != nil || rel == "." {
-		return fallback
-	}
-	parts := strings.SplitN(rel, string(filepath.Separator), 2)
-	if len(parts) < 1 {
-		return fallback
-	}
-	dirName := parts[len(parts)-1]
-	if dirName == "" || dirName == "." {
-		return fallback
-	}
-
-	cleaned := strings.ToLower(dirName)
-	cleaned = stripQualityTags(cleaned)
-	cleaned = strings.TrimSpace(yearRe.ReplaceAllString(cleaned, ""))
-	cleaned = strings.TrimSpace(strings.TrimRight(cleaned, " .-_"))
-
-	year := extractYearFromDir(dirName)
-
-	var result ParsedMedia
-	result.Title = titleCase(cleaned)
-	result.Year = year
-	if year != "" {
-		result.Title = strings.TrimSpace(result.Title + " (" + year + ")")
-	}
-	result.TmdbID = extractTmdbIDFromPath(dir, s.cfg.MediaDir, "movie")
-	if result.Title == "" || result.Title == " " {
-		return fallback
-	}
-	return result
-}
-
-func (s *Scanner) resolveTmdbID(path string, parsed ParsedMedia, mediaType string) int64 {
-	dir := filepath.Dir(path)
-
-	if id := readTmdbIDFile(dir); id > 0 {
-		return id
-	}
-	parentDir := filepath.Dir(dir)
-	if parentDir != dir {
-		if id := readTmdbIDFile(parentDir); id > 0 {
-			return id
-		}
-	}
-	if id := extractTmdbIDFromPath(path, s.cfg.MediaDir, mediaType); id > 0 {
-		return id
-	}
-	return 0
-}
-
-func readTmdbIDFile(dir string) int64 {
-	p := filepath.Join(dir, ".tmdbid")
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return 0
-	}
-	id, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-	if err != nil {
-		return 0
-	}
-	return id
 }
 
 func (s *Scanner) resolveGroupID(path string, libraryID int64) int64 {
@@ -574,7 +580,7 @@ func (s *Scanner) resolveGroupID(path string, libraryID int64) int64 {
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(e.Name()))
-		if videoExts[ext] {
+		if videoExts[ext] || s.isVideoExt(ext) {
 			videoFiles = append(videoFiles, e.Name())
 		}
 	}
@@ -675,12 +681,12 @@ func (s *Scanner) extractEmbeddedCover(mediaID int64, filePath string) {
 		return
 	}
 
-	if err := os.MkdirAll(s.imageCacheDir, 0755); err != nil {
-		log.Printf("Scanner: cannot create image cache dir %s: %v", s.imageCacheDir, err)
+	if err := os.MkdirAll(s.imageDir, 0755); err != nil {
+		log.Printf("Scanner: cannot create image cache dir %s: %v", s.imageDir, err)
 		return
 	}
 
-	outPath := filepath.Join(s.imageCacheDir, fmt.Sprintf("%d-poster.jpg", mediaID))
+	outPath := filepath.Join(s.imageDir, fmt.Sprintf("%d-poster.jpg", mediaID))
 
 	cmd := exec.Command("ffmpeg",
 		"-y",
@@ -706,12 +712,12 @@ func (s *Scanner) extractEmbeddedCover(mediaID int64, filePath string) {
 }
 
 var subtitleExts = map[string]string{
-	".srt":  "srt",
-	".vtt":  "vtt",
-	".ass":  "ass",
-	".ssa":  "ssa",
-	".sub":  "sub",
-	".idx":  "idx",
+	".srt": "srt",
+	".vtt": "vtt",
+	".ass": "ass",
+	".ssa": "ssa",
+	".sub": "sub",
+	".idx": "idx",
 }
 
 func (s *Scanner) detectSubtitles(mediaID int64, filePath string) {

@@ -10,6 +10,12 @@ database:
   journal_mode: "WAL"
   synchronous: "NORMAL"
 
+data:
+  dir: "./data"                          # Jellyfin: ProgramDataPath
+  metadata_dir: "./data/metadata/library" # Jellyfin: InternalMetadataPath — per-item JSON + images
+  image_cache_dir: "./data/images/tmdb"  # Shared TMDB image cache (deduplicated)
+  collections_dir: "./data/collections"  # Collection JSON files
+
 scanner:
   media_dir: "./media"            # root — subdirectories (movies/, tvshows/, anime/) become libraries
   max_concurrent_ffprobes: 2
@@ -20,7 +26,7 @@ encoder:
   enable_auto_480p_hls: true     # Automatically creates 480p HLS from 1080p
   hls_segment_duration_sec: 4
   ffmpeg_preset: "superfast"
-  hls_output_dir: "./data/hls"
+  hls_output_dir: "./data/transcodes"
 
 integrations:
   tmdb_api_key: "change-me-to-a-real-key"

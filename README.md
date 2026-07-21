@@ -50,6 +50,10 @@ Password: admin
 | `database.journal_mode` | `WAL` | SQLite journal mode |
 | `database.synchronous` | `NORMAL` | SQLite synchronous mode |
 | `database.busy_timeout_ms` | `5000` | SQLite busy timeout |
+| `data.dir` | `./data` | Root data directory (Jellyfin: ProgramDataPath) |
+| `data.metadata_dir` | `./data/metadata/library` | Per-item metadata + images (Jellyfin: InternalMetadataPath) |
+| `data.image_cache_dir` | `./data/images/tmdb` | Shared TMDB image cache |
+| `data.collections_dir` | `./data/collections` | Collection JSON files |
 | `scanner.media_dir` | `./media` | Media library directory |
 | `scanner.max_concurrent_ffprobes` | `2` | Max parallel ffprobe processes |
 | `scanner.scan_batch_size` | `50` | DB insert batch size |
@@ -57,10 +61,34 @@ Password: admin
 | `encoder.enable_auto_480p_hls` | `true` | Auto-encode new media to 480p HLS |
 | `encoder.hls_segment_duration_sec` | `4` | HLS segment duration |
 | `encoder.ffmpeg_preset` | `superfast` | x264 preset for encoding |
-| `encoder.hls_output_dir` | `./data/hls` | HLS output directory |
+| `encoder.hls_output_dir` | `./data/transcodes` | HLS transcoded output |
 | `integrations.tmdb_api_key` | — | TMDB API key (warning if missing — TMDB features disabled) |
 | `ui.theme` | `dark` | UI theme |
 | `ui.app_title` | `My Home Netflix` | Browser tab title |
+
+## Data Directory (Jellyfin-Compatible)
+
+```
+data/                                       # /data volume
+├── media.db                                # SQLite database
+├── metadata/
+│   └── library/                            # Per-item metadata + images
+│       └── {id[:2]}/                       # Sharded by first 2 chars of media ID
+│           └── {media_id}/
+│               ├── poster.jpg              # Primary poster (downloaded from TMDB)
+│               ├── backdrop.jpg            # Backdrop image
+│               └── thumb.jpg               # Extracted thumbnail
+├── images/
+│   └── tmdb/                               # Shared TMDB image cache (deduplicated)
+│       └── {tmdb_id}/
+│           ├── poster.jpg
+│           └── backdrop.jpg
+├── collections/                            # Collection metadata
+├── transcodes/                             # HLS output
+└── extracted/                              # Embedded poster extraction cache
+```
+
+**Architecture**: Mirrors Jellyfin's data layout. Images are downloaded locally during TMDB sync and served directly from disk. No runtime dependency on `image.tmdb.org` after the first sync.
 
 ## Content Filtering (3-Layer)
 
@@ -169,21 +197,29 @@ On startup, the server runs a full media scan and starts a filesystem watcher. N
 ## Architecture
 
 ```
-┌──────────────┐     ┌───────────────┐     ┌─────────────┐
-│   Browser    │     │   Go Server   │     │   SQLite    │
-│  (hls.js)    │────▶│  (net/http)   │────▶│  (WAL mode) │
-│  YouTube IF  │     │               │     └─────────────┘
-└──────────────┘     │  ┌─────────┐  │
-                     │  │ Scanner │──┼──▶ fsnotify + ffprobe
-                     │  ├─────────┤  │
-                     │  │ Encoder │──┼──▶ ffmpeg (nice -n 19)
-                     │  ├─────────┤  │
-                     │  │  TMDB   │──┼──▶ api.themoviedb.org
-                     │  ├─────────┤  │
-                     │  │  Admin  │──┼──▶ Full CRUD API
-                     │  └─────────┘  │
-                     └───────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      LibraryManager                          │
+│  (orchestrates scan → resolve → enrich → persist)            │
+├──────────────────────────────────────────────────────────────┤
+│  Scanner        │  Resolver Chain  │  Provider Manager       │
+│  (file walker)  │  (file→item)     │  (metadata + images)    │
+│  ┌────────────┐ │  ┌─────────────┐ │  ┌──────────────────┐  │
+│  │ fsnotify   │ │  │ EpisodeRes  │ │  │ TMDBProvider     │  │
+│  │ ffprobe    │ │  │ MovieRes    │ │  │ EmbeddedProvider │  │
+│  │ subtitles  │ │  │ NamingOpts  │ │  │ ImageCacheMgr    │  │
+│  │ audio trk  │ │  │ 54 ext,     │ │  │ (download→disk)  │  │
+│  │ images     │ │  │ 8 ep regex  │ │  └──────────────────┘  │
+│  └────────────┘ │  └─────────────┘ │                         │
+├──────────────────────────────────────────────────────────────┤
+│                   Repository (SQLite)                        │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+**Provider-Resolver pattern** mirrors Jellyfin's architecture:
+- **Resolvers** determine WHAT each file is (Movie, Episode) using 54 extensions + 8 episode regex patterns
+- **Providers** enrich items with metadata (TMDB) and download images locally
+- **ImageCacheManager** downloads TMDB images to `data/metadata/library/{id}/` — served directly from disk
+- **LibraryManager** orchestrates the scan-and-enrich pipeline
 
 ## License
 

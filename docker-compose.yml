@@ -6,9 +6,9 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./data:/data
-      - ./media:/media          # subdirectories (movies/, tvshows/, anime/) auto-create libraries
-      - ./config.yaml:/config.yaml:ro
+      - ./data:/data                                  # Database, metadata, images, collections, transcodes
+      - ./media:/media                                # Media libraries (subdirectories auto-create libraries)
+      - ./config.yaml:/config.yaml:ro                 # Read-only config
     environment:
       - TZ=UTC
       - NEXTFLIX_CONFIG=/config.yaml

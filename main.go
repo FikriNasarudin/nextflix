@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"nextflix/internal/database"
 	"nextflix/internal/encoder"
 	"nextflix/internal/handler"
+	"nextflix/internal/library"
 	"nextflix/internal/recommendation"
 	"nextflix/internal/scanner"
 	"nextflix/internal/tmdb"
@@ -68,9 +68,31 @@ func main() {
 	enc := encoder.New(db, cfg.Encoder, encoderCh)
 	enc.Start()
 
-	scn := scanner.New(db, cfg.Scanner, encoderCh, filepath.Join(filepath.Dir(cfg.Database.Path), "images"))
-	scn.Watch()
-	go scn.ScanAll()
+	lm := library.New(db, cfg, encoderCh)
+	lm.StartWatcher()
+
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("Scanner: panic recovered: %v", rec)
+			}
+		}()
+		lm.ValidateLibrary()
+		log.Println("Library: initial scan complete")
+		db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Scan complete')`)
+		lm.RefreshMetadata()
+	}()
+
+	scanFunc := func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("Scanner: panic recovered: %v", rec)
+			}
+		}()
+		lm.ValidateLibrary()
+		db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Scan complete')`)
+		lm.RefreshMetadata()
+	}
 
 	rec := recommendation.NewEngine(db)
 	rec.Start()
@@ -80,7 +102,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         addr(cfg.Server.Port),
-		Handler:      handler.NewRouter(db, authMgr, cfg.Encoder.HLSOutputDir, scn),
+		Handler:      handler.NewRouter(db, authMgr, cfg.Encoder.HLSOutputDir, lm.Scanner(), scanFunc),
 		ReadTimeout:  time.Duration(cfg.Server.ReadTimeoutSec) * time.Second,
 		WriteTimeout: time.Duration(cfg.Server.WriteTimeoutSec) * time.Second,
 		IdleTimeout:  60 * time.Second,

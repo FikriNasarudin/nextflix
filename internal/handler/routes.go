@@ -31,9 +31,10 @@ type Router struct {
 	authMid  func(http.Handler) http.Handler
 	adminMid func(http.Handler) http.Handler
 	scanner  *scanner.Scanner
+	scanFunc func()
 }
 
-func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, scn *scanner.Scanner) *Router {
+func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, scn *scanner.Scanner, scanFunc func()) *Router {
 	r := &Router{
 		mux:      http.NewServeMux(),
 		db:       db,
@@ -42,6 +43,7 @@ func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, scn *scanner.Sc
 		authMid:  middleware.Auth(authMgr),
 		adminMid: middleware.RequireAdmin,
 		scanner:  scn,
+		scanFunc: scanFunc,
 	}
 
 	authH := auth.NewHandler(db, authMgr)
@@ -388,7 +390,7 @@ func (r *Router) mountAdmin() {
 					log.Printf("Scanner: panic recovered: %v", rec)
 				}
 			}()
-			r.scanner.ScanAll()
+			r.scanFunc()
 			r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Scan complete')`)
 		}()
 		writeJSON(w, map[string]string{"status": "scan started"})
