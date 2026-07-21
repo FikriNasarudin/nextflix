@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -14,12 +13,13 @@ import (
 	"strconv"
 
 	"nextflix/internal/model"
+	"nextflix/internal/tmdb"
 )
 
 type TMDBProvider struct {
 	db         *sql.DB
-	apiKey     string
-	client     *http.Client
+	tmdbClient *tmdb.Client
+	httpClient *http.Client
 	imageCache *ImageCacheManager
 }
 
@@ -76,11 +76,11 @@ type tmdbCredits struct {
 	} `json:"crew"`
 }
 
-func NewTMDBProvider(db *sql.DB, apiKey string, imageCache *ImageCacheManager) *TMDBProvider {
+func NewTMDBProvider(db *sql.DB, tmdbClient *tmdb.Client, imageCache *ImageCacheManager) *TMDBProvider {
 	return &TMDBProvider{
 		db:         db,
-		apiKey:     apiKey,
-		client:     &http.Client{},
+		tmdbClient: tmdbClient,
+		httpClient: &http.Client{},
 		imageCache: imageCache,
 	}
 }
@@ -151,7 +151,7 @@ func (p *TMDBProvider) Fetch(ctx context.Context, item *model.MediaItem) (*Metad
 	var trailerKey string
 	videosPath := fmt.Sprintf("/%s/%d/videos", tmdbMediaTypePath(mediaType), tmdbID)
 	var vv tmdbVideos
-	if err := p.get(ctx, videosPath, &vv); err == nil {
+		if err := p.tmdbClient.Get(videosPath, &vv); err == nil {
 		for _, v := range vv.Results {
 			if v.Site == "YouTube" && v.Type == "Trailer" && v.Official {
 				trailerKey = v.Key
@@ -226,7 +226,7 @@ func (p *TMDBProvider) searchTMDB(ctx context.Context, title string, year int, m
 	}
 
 	var result tmdbSearchResult
-	if err := p.get(ctx, path, &result); err != nil {
+	if err := p.tmdbClient.Get(path, &result); err != nil {
 		return 0, err
 	}
 
@@ -239,7 +239,7 @@ func (p *TMDBProvider) searchTMDB(ctx context.Context, title string, year int, m
 func (p *TMDBProvider) fetchDetail(ctx context.Context, tmdbID int64, mediaType string) (*tmdbDetail, error) {
 	path := fmt.Sprintf("/%s/%d", tmdbMediaTypePath(mediaType), tmdbID)
 	var detail tmdbDetail
-	if err := p.get(ctx, path, &detail); err != nil {
+	if err := p.tmdbClient.Get(path, &detail); err != nil {
 		return nil, err
 	}
 	return &detail, nil
@@ -248,7 +248,7 @@ func (p *TMDBProvider) fetchDetail(ctx context.Context, tmdbID int64, mediaType 
 func (p *TMDBProvider) fetchAndStoreCredits(ctx context.Context, tmdbID int64, mediaType string, itemID int64) error {
 	path := fmt.Sprintf("/%s/%d/credits", tmdbMediaTypePath(mediaType), tmdbID)
 	var credits tmdbCredits
-	if err := p.get(ctx, path, &credits); err != nil {
+	if err := p.tmdbClient.Get(path, &credits); err != nil {
 		return fmt.Errorf("fetch credits: %w", err)
 	}
 
@@ -280,38 +280,6 @@ func (p *TMDBProvider) fetchAndStoreCredits(ctx context.Context, tmdbID int64, m
 	return tx.Commit()
 }
 
-func (p *TMDBProvider) get(ctx context.Context, path string, target interface{}) error {
-	baseURL := "https://api.themoviedb.org/3"
-	fullURL := baseURL + path
-
-	parsed, err := url.Parse(fullURL)
-	if err != nil {
-		return fmt.Errorf("parse url: %w", err)
-	}
-
-	q := parsed.Query()
-	q.Set("api_key", p.apiKey)
-	parsed.RawQuery = q.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, "GET", parsed.String(), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("http get: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("tmdb status=%d body=%s", resp.StatusCode, string(body))
-	}
-
-	return json.NewDecoder(resp.Body).Decode(target)
-}
-
 func (p *TMDBProvider) DownloadImage(ctx context.Context, tmdbPath string, size string, dest string) error {
 	if tmdbPath == "" {
 		return fmt.Errorf("empty tmdb image path")
@@ -327,7 +295,7 @@ func (p *TMDBProvider) DownloadImage(ctx context.Context, tmdbPath string, size 
 		return fmt.Errorf("create request: %w", err)
 	}
 
-	resp, err := p.client.Do(req)
+	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("download image: %w", err)
 	}

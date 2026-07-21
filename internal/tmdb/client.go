@@ -26,7 +26,7 @@ func NewClient(db *sql.DB) *Client {
 	}
 }
 
-func (c *Client) apiKey() (string, error) {
+func (c *Client) APIKey() (string, error) {
 	if c.apiKeyCache != "" && time.Since(c.apiKeyCacheTime) < 5*time.Minute {
 		return c.apiKeyCache, nil
 	}
@@ -45,7 +45,7 @@ func (c *Client) apiKey() (string, error) {
 }
 
 func (c *Client) Get(path string, result any) error {
-	key, err := c.apiKey()
+	key, err := c.APIKey()
 	if err != nil {
 		return err
 	}

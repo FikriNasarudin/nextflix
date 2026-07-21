@@ -12,6 +12,7 @@ import (
 	"nextflix/internal/provider"
 	"nextflix/internal/resolver"
 	"nextflix/internal/scanner"
+	"nextflix/internal/tmdb"
 )
 
 type LibraryManager struct {
@@ -47,16 +48,13 @@ func New(db *sql.DB, cfg *config.Config, encoderCh chan<- scanner.EncoderJob) *L
 	imageCache := provider.NewImageCacheManager(cfg.Data.MetadataDir, cfg.Data.ImageCacheDir, db)
 	provMgr := provider.NewProviderManager(db, imageCache)
 
-	apiKey := cfg.Integrations.TmdbAPIKey
-	if apiKey == "" || apiKey == "change-me-to-a-real-key" {
-		db.QueryRow(`SELECT value FROM settings WHERE key = 'tmdb_api_key'`).Scan(&apiKey)
-	}
-	if apiKey != "" && apiKey != "change-me-to-a-real-key" && apiKey != "YOUR_TMDB_API_KEY_HERE" {
-		tmdbProv := provider.NewTMDBProvider(db, apiKey, imageCache)
+	tmdbClient := tmdb.NewClient(db)
+	if key, err := tmdbClient.APIKey(); err == nil && key != "" {
+		tmdbProv := provider.NewTMDBProvider(db, tmdbClient, imageCache)
 		provMgr.RegisterMetadata(tmdbProv)
 		log.Println("Library: TMDB provider registered")
 	} else {
-		log.Println("Library: TMDB provider skipped (no API key)")
+		log.Printf("Library: TMDB provider skipped: %v", err)
 	}
 
 	scn := scanner.New(
