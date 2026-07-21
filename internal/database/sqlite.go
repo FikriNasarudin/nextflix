@@ -21,8 +21,8 @@ func Open(cfg config.DatabaseConfig) (*sql.DB, error) {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
 
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := db.Ping(); err != nil {

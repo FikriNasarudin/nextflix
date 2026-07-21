@@ -530,6 +530,7 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string, re
 		})
 	}
 
+	s.db.Exec(`BEGIN IMMEDIATE`)
 	for _, ep := range episodes {
 		var insertSQL string
 		var insertArgs []any
@@ -566,6 +567,7 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string, re
 		s.detectSubtitles(id, path)
 		s.storeAudioTracks(id, probeResult.Streams)
 	}
+	s.db.Exec(`COMMIT`)
 }
 
 func (s *Scanner) resolveGroupID(path string, libraryID int64) int64 {

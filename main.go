@@ -71,18 +71,6 @@ func main() {
 	lm := library.New(db, cfg, encoderCh)
 	lm.StartWatcher()
 
-	go func() {
-		defer func() {
-			if rec := recover(); rec != nil {
-				log.Printf("Scanner: panic recovered: %v", rec)
-			}
-		}()
-		lm.ValidateLibrary()
-		log.Println("Library: initial scan complete")
-		db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Scan complete')`)
-		lm.RefreshMetadata()
-	}()
-
 	scanFunc := func() {
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -113,6 +101,22 @@ func main() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
+	}()
+
+	time.Sleep(2 * time.Second)
+	log.Println("Server ready — accepting connections, starting initial scan...")
+
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("Scanner: panic recovered: %v", rec)
+			}
+		}()
+		lm.ValidateLibrary()
+		log.Println("Library: initial scan complete")
+		db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Scan complete')`)
+		lm.RefreshMetadata()
+		log.Println("Library: metadata refresh complete")
 	}()
 
 	quit := make(chan os.Signal, 1)
