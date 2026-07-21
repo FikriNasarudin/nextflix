@@ -215,6 +215,18 @@ func (r *Router) mountAssets() {
 		var path string
 		err = r.db.QueryRow(`SELECT file_path FROM media_images WHERE media_id = ? AND image_type = ? ORDER BY is_primary DESC LIMIT 1`, id, imgType).Scan(&path)
 		if err != nil {
+			if imgType == "backdrop" {
+				var showName string
+				if err2 := r.db.QueryRow(`SELECT show_name FROM media_items WHERE id = ?`, id).Scan(&showName); err2 == nil && showName != "" {
+					var sp string
+					err3 := r.db.QueryRow(`SELECT file_path FROM show_images WHERE show_name = ? AND image_type = 'backdrop' AND season_number = 0 LIMIT 1`, showName).Scan(&sp)
+					if err3 == nil {
+						w.Header().Set("Cache-Control", "public, max-age=86400")
+						http.ServeFile(w, req, sp)
+						return
+					}
+				}
+			}
 			if imgType == "poster" {
 				var showName, seasonNumberStr string
 				if err2 := r.db.QueryRow(`SELECT show_name, COALESCE(season_number, 0) || '' FROM media_items WHERE id = ?`, id).Scan(&showName, &seasonNumberStr); err2 == nil && showName != "" {
@@ -290,10 +302,11 @@ func (r *Router) mountAssets() {
 
 		rows, err := r.db.Query(`
 			SELECT mi.id, mi.title, mi.media_type, mi.duration_seconds,
-			       CASE WHEN mp.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path
+			CASE WHEN mp.file_path IS NOT NULL THEN '' WHEN si.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path
 			FROM collection_items ci
 			JOIN media_items mi ON mi.id = ci.media_id
 			LEFT JOIN media_images mp ON mp.media_id = mi.id AND mp.image_type = 'poster' AND mp.is_primary = 1
+			LEFT JOIN show_images si ON si.show_name = mi.show_name AND si.image_type = 'poster' AND si.season_number = 0
 			WHERE ci.collection_id = ?
 			ORDER BY ci.sort_order, mi.title
 		`, collID)
