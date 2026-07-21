@@ -24,6 +24,8 @@ type MediaCounts struct {
 	Total             int            `json:"total"`
 	Movies            int            `json:"movies"`
 	TVShows           int            `json:"tv_shows"`
+	Episodes          int            `json:"episodes"`
+	Seasons           int            `json:"seasons"`
 	MoviesEnrichment  EnrichmentInfo `json:"movies_enrichment"`
 	TVEnrichment      EnrichmentInfo `json:"tv_enrichment"`
 }
@@ -56,7 +58,7 @@ func (h *StatsHandler) Get(w http.ResponseWriter, r *http.Request) {
 			stats.Media.Movies = count
 			stats.Media.MoviesEnrichment.Total = count
 		case "tv":
-			stats.Media.TVShows = count
+			stats.Media.Episodes = count
 			stats.Media.TVEnrichment.Total = count
 		}
 		stats.Media.Total += count
@@ -65,6 +67,9 @@ func (h *StatsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "rows error", http.StatusInternalServerError)
 		return
 	}
+
+	h.db.QueryRow(`SELECT COUNT(DISTINCT show_name) FROM media_items WHERE media_type = 'tv' AND show_name != ''`).Scan(&stats.Media.TVShows)
+	h.db.QueryRow(`SELECT COUNT(DISTINCT show_name || ':' || season_number) FROM media_items WHERE media_type = 'tv' AND show_name != '' AND season_number > 0`).Scan(&stats.Media.Seasons)
 
 	h.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE media_type = 'movie' AND tmdb_id IS NOT NULL AND tmdb_id != 0`).Scan(&stats.Media.MoviesEnrichment.WithTmdbID)
 	h.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE media_type = 'movie' AND poster_path != ''`).Scan(&stats.Media.MoviesEnrichment.WithPoster)

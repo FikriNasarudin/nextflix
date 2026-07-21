@@ -92,12 +92,20 @@ export default function DashboardPage() {
           <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Libraries</div>
         </div>
         <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
-          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)' }}>{stats?.movies || 0}</div>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)' }}>{me?.movies || 0}</div>
           <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Movies</div>
         </div>
         <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
-          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)' }}>{stats?.tv_shows || 0}</div>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)' }}>{me?.tv_shows || 0}</div>
           <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>TV Shows</div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)' }}>{me?.episodes || 0}</div>
+          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Episodes</div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)' }}>{me?.seasons || 0}</div>
+          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Seasons</div>
         </div>
       </div>
 
