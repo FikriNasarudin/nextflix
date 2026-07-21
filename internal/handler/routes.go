@@ -21,6 +21,8 @@ import (
 	"nextflix/web"
 )
 
+const placeholderSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><rect width="300" height="450" fill="#14142b"/><circle cx="150" cy="200" r="32" fill="none" stroke="#333" stroke-width="2"/><polygon points="141,188 141,212 166,200" fill="#333"/><text x="150" y="255" fill="#444" font-family="sans-serif" font-size="11" text-anchor="middle">No Poster</text></svg>`
+
 type Router struct {
 	mux      *http.ServeMux
 	db       *sql.DB
@@ -204,7 +206,12 @@ func (r *Router) mountAssets() {
 		if err != nil { writeError(w, "invalid id", http.StatusBadRequest); return }
 		var path string
 		err = r.db.QueryRow(`SELECT file_path FROM media_images WHERE media_id = ? AND image_type = ? ORDER BY is_primary DESC LIMIT 1`, id, imgType).Scan(&path)
-		if err != nil { writeError(w, "not found", http.StatusNotFound); return }
+		if err != nil {
+			w.Header().Set("Content-Type", "image/svg+xml")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			w.Write([]byte(placeholderSVG))
+			return
+		}
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		http.ServeFile(w, req, path)
 	})))
