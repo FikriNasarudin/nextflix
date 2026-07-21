@@ -62,13 +62,13 @@ async function renderDashboard(el) {
     api('/users'), api('/libraries'), api('/media'),
     api('/activity'), api('/settings'),
   ]);
-  const mediaDir = (settings||{}).scanner_media_dir || '—';
+  const mediaDir = (settings || {}).scanner_media_dir || '—';
   el.innerHTML = `
     <h1>Dashboard</h1>
     <div class="card-stats">
-      <div class="stat-card"><div class="stat-value">${users ? users.length : 0}</div><div class="stat-label">Users</div></div>
-      <div class="stat-card"><div class="stat-value">${libs ? libs.length : 0}</div><div class="stat-label">Libraries</div></div>
-      <div class="stat-card"><div class="stat-value">${media ? media.length : 0}</div><div class="stat-label">Media Items</div></div>
+      <div class="stat-card"><div class="stat-value">${(users || []).length}</div><div class="stat-label">Users</div></div>
+      <div class="stat-card"><div class="stat-value">${(libs || []).length}</div><div class="stat-label">Libraries</div></div>
+      <div class="stat-card"><div class="stat-value">${(media || []).length}</div><div class="stat-label">Media Items</div></div>
       <div class="stat-card"><div class="stat-value" style="font-size:1rem">v0.1.0</div><div class="stat-label">Version</div></div>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
@@ -194,6 +194,7 @@ window.deleteUser = async (id) => {
 };
 
 window.viewProfiles = async (uid) => {
+  window._currentProfileUserId = uid;
   const profiles = await api('/users/' + uid + '/profiles') || [];
   const [libraries, access] = await Promise.all([
     api('/libraries'),
@@ -272,11 +273,12 @@ window.deleteProfile = async (id) => {
   if (!confirm('Delete profile?')) return;
   await api('/profiles/' + id, { method: 'DELETE' });
   toast('Profile deleted', 'success');
-  viewProfiles(document.querySelector('[data-section="users"]').id);
+  const uid = window._currentProfileUserId;
+  if (uid) viewProfiles(uid);
 };
 
 async function renderLibraries(el) {
-  const [libs, media] = await Promise.all([api('/libraries') || [], api('/media') || []]);
+  const [libs, media] = await Promise.all([api('/libraries'), api('/media')]);
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h1>Libraries</h1>
@@ -313,8 +315,8 @@ async function renderLibraries(el) {
 }
 
 window.editLib = async (id) => {
-  const libs = await api('/libraries');
-  const l = (libs||[]).find(x => x.id === id);
+  const libs = await api('/libraries') || [];
+  const l = libs.find(x => x.id === id);
   if (!l) return;
   modal('Edit Library', `
     <div class="form-row"><label>Name</label><input name="name" value="${l.name}"></div>
@@ -357,10 +359,13 @@ async function renderTags(el) {
   document.getElementById('addTagBtn').onclick = () => {
     modal('Add Tag', `
       <div class="form-row"><label>Name</label><input name="name" placeholder="Tag name"></div>
+      <div class="form-row"><label>TMDB Genre ID</label><input name="tmdb_genre_id" placeholder="Optional"></div>
     `, async () => {
       const d = formData(document.querySelector('.modal-body'));
       if (!d.name) { toast('Name required', 'error'); return; }
-      await api('/tags', { method: 'POST', body: JSON.stringify(d) });
+      const body = { name: d.name };
+      if (d.tmdb_genre_id) body.tmdb_genre_id = parseInt(d.tmdb_genre_id, 10);
+      await api('/tags', { method: 'POST', body: JSON.stringify(body) });
       toast('Tag created', 'success');
       renderTags(el);
     });
@@ -368,11 +373,16 @@ async function renderTags(el) {
 }
 
 window.editTag = async (id) => {
+  const tags = await api('/tags') || [];
+  const t = tags.find(x => x.id === id);
   modal('Edit Tag', `
-    <div class="form-row"><label>Name</label><input name="name" placeholder="Tag name"></div>
+    <div class="form-row"><label>Name</label><input name="name" placeholder="Tag name" value="${t?.name || ''}"></div>
+    <div class="form-row"><label>TMDB Genre ID</label><input name="tmdb_genre_id" placeholder="Optional" value="${t?.tmdb_genre_id || ''}"></div>
   `, async () => {
     const d = formData(document.querySelector('.modal-body'));
-    await api('/tags/' + id, { method: 'PUT', body: JSON.stringify(d) });
+    const body = { name: d.name };
+    if (d.tmdb_genre_id) body.tmdb_genre_id = parseInt(d.tmdb_genre_id, 10);
+    await api('/tags/' + id, { method: 'PUT', body: JSON.stringify(body) });
     toast('Tag updated', 'success');
     renderTags(document.getElementById('adminContent'));
   });
@@ -431,7 +441,7 @@ window.editMedia = async (id) => {
   const [media, allTags, allLibs, curTags] = await Promise.all([
     api('/media'), api('/tags'), api('/libraries'), api('/media/' + id + '/tags'),
   ]);
-  const m = media.find(x => x.id === id);
+  const m = (media || []).find(x => x.id === id);
   const curTagIds = (curTags||[]).map(t => t.id);
 
   modal('Edit Media: ' + m.title, `
@@ -459,7 +469,7 @@ window.editMedia = async (id) => {
 };
 
 async function renderCollections(el) {
-  const colls = await fetch('/api/v1/collections').then(r => r.json()) || [];
+  const colls = await api('/collections') || [];
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h1>Collections</h1>
@@ -496,13 +506,12 @@ async function renderCollections(el) {
 
 window.editColl = async (id) => {
   const [colls, media] = await Promise.all([
-    fetch('/api/v1/collections').then(r => r.json()),
+    api('/collections'),
     api('/media'),
   ]);
-  const c = colls.find(x => x.id === id);
+  const c = (colls || []).find(x => x.id === id);
   if (!c) return;
-  const itemsRes = await fetch('/api/v1/collections/' + id + '/items');
-  const curItems = itemsRes.ok ? await itemsRes.json() : [];
+  const curItems = await api('/collections/' + id + '/items') || [];
   const curIds = curItems.map(i => i.id);
 
   modal('Edit Collection: ' + c.name, `
@@ -575,7 +584,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   window.addEventListener('popstate', () => {
-    const s = window.location.pathname.replace('/admin/', '') || 'dashboard';
+    const s = window.location.pathname.replace(/^\/admin\/?/, '') || 'dashboard';
     loadSection(s);
   });
 });

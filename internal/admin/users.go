@@ -20,7 +20,7 @@ func NewUserHandler(db *sql.DB) *UserHandler {
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`SELECT id, username, role, is_active, created_at FROM users ORDER BY id`)
 	if err != nil {
-		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+		writeError(w, "database error", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -36,12 +36,16 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var u user
 		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.IsActive, &u.CreatedAt); err != nil {
-			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			writeError(w, "scan error", http.StatusInternalServerError)
 			return
 		}
 		users = append(users, u)
 	}
-	writeJSON(w, users)
+	if err := rows.Err(); err != nil {
+		writeError(w, "rows error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, emptySlice(users))
 }
 
 func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -51,11 +55,11 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Role     string `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+		writeError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 	if body.Username == "" || body.Password == "" {
-		http.Error(w, `{"error":"username and password required"}`, http.StatusBadRequest)
+		writeError(w, "username and password required", http.StatusBadRequest)
 		return
 	}
 	if body.Role == "" {
@@ -64,7 +68,7 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, `{"error":"failed to hash password"}`, http.StatusInternalServerError)
+		writeError(w, "failed to hash password", http.StatusInternalServerError)
 		return
 	}
 
@@ -73,7 +77,7 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		body.Username, string(hash), body.Role,
 	)
 	if err != nil {
-		http.Error(w, `{"error":"username already exists"}`, http.StatusConflict)
+		writeError(w, "username already exists", http.StatusConflict)
 		return
 	}
 
@@ -85,7 +89,7 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		writeError(w, "invalid id", http.StatusBadRequest)
 		return
 	}
 
@@ -100,11 +104,11 @@ func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, username, role, is_active, created_at FROM users WHERE id = ?`, id,
 	).Scan(&u.ID, &u.Username, &u.Role, &u.IsActive, &u.CreatedAt)
 	if err == sql.ErrNoRows {
-		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
 	if err != nil {
-		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+		writeError(w, "database error", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, u)
@@ -113,7 +117,7 @@ func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		writeError(w, "invalid id", http.StatusBadRequest)
 		return
 	}
 
@@ -124,57 +128,72 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		IsActive *bool   `json:"is_active"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+		writeError(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	var exists int
+	h.db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = ?`, id).Scan(&exists)
+	if exists == 0 {
+		writeError(w, "user not found", http.StatusNotFound)
 		return
 	}
 
 	if body.Username != nil {
 		if _, err := h.db.Exec(`UPDATE users SET username = ? WHERE id = ?`, *body.Username, id); err != nil {
-			http.Error(w, `{"error":"failed to update username"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update username", http.StatusInternalServerError)
 			return
 		}
 	}
 	if body.Password != nil {
 		hash, err := bcrypt.GenerateFromPassword([]byte(*body.Password), bcrypt.DefaultCost)
 		if err != nil {
-			http.Error(w, `{"error":"failed to hash password"}`, http.StatusInternalServerError)
+			writeError(w, "failed to hash password", http.StatusInternalServerError)
 			return
 		}
 		if _, err := h.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(hash), id); err != nil {
-			http.Error(w, `{"error":"failed to update password"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update password", http.StatusInternalServerError)
 			return
 		}
 	}
 	if body.Role != nil {
 		if _, err := h.db.Exec(`UPDATE users SET role = ? WHERE id = ?`, *body.Role, id); err != nil {
-			http.Error(w, `{"error":"failed to update role"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update role", http.StatusInternalServerError)
 			return
 		}
 	}
 	if body.IsActive != nil {
 		if _, err := h.db.Exec(`UPDATE users SET is_active = ? WHERE id = ?`, *body.IsActive, id); err != nil {
-			http.Error(w, `{"error":"failed to update status"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update status", http.StatusInternalServerError)
 			return
 		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
 func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		writeError(w, "invalid id", http.StatusBadRequest)
 		return
 	}
 
 	requestUserID := userIDFromContext(r)
 	if id == requestUserID {
-		http.Error(w, `{"error":"cannot delete your own account"}`, http.StatusForbidden)
+		writeError(w, "cannot delete your own account", http.StatusForbidden)
+		return
+	}
+
+	var exists int
+	h.db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = ?`, id).Scan(&exists)
+	if exists == 0 {
+		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
 
 	if _, err := h.db.Exec(`DELETE FROM users WHERE id = ?`, id); err != nil {
-		http.Error(w, `{"error":"failed to delete user"}`, http.StatusInternalServerError)
+		writeError(w, "failed to delete user", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -183,7 +202,14 @@ func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
 	uid, err := strconv.ParseInt(r.PathValue("uid"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid user id"}`, http.StatusBadRequest)
+		writeError(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	var userExists int
+	h.db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = ?`, uid).Scan(&userExists)
+	if userExists == 0 {
+		writeError(w, "user not found", http.StatusNotFound)
 		return
 	}
 
@@ -191,7 +217,7 @@ func (h *UserHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, name, avatar_url, is_kid, max_rating, created_at FROM profiles WHERE user_id = ? ORDER BY id`, uid,
 	)
 	if err != nil {
-		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+		writeError(w, "database error", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -208,18 +234,22 @@ func (h *UserHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var p profile
 		if err := rows.Scan(&p.ID, &p.Name, &p.AvatarURL, &p.IsKid, &p.MaxRating, &p.CreatedAt); err != nil {
-			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			writeError(w, "scan error", http.StatusInternalServerError)
 			return
 		}
 		profiles = append(profiles, p)
 	}
-	writeJSON(w, profiles)
+	if err := rows.Err(); err != nil {
+		writeError(w, "rows error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, emptySlice(profiles))
 }
 
 func (h *UserHandler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 	uid, err := strconv.ParseInt(r.PathValue("uid"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid user id"}`, http.StatusBadRequest)
+		writeError(w, "invalid user id", http.StatusBadRequest)
 		return
 	}
 
@@ -230,11 +260,11 @@ func (h *UserHandler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 		MaxRating string `json:"max_rating"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+		writeError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 	if body.Name == "" {
-		http.Error(w, `{"error":"name required"}`, http.StatusBadRequest)
+		writeError(w, "name required", http.StatusBadRequest)
 		return
 	}
 
@@ -243,7 +273,7 @@ func (h *UserHandler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 		uid, body.Name, body.AvatarURL, body.IsKid, body.MaxRating,
 	)
 	if err != nil {
-		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+		writeError(w, "database error", http.StatusInternalServerError)
 		return
 	}
 
@@ -255,7 +285,7 @@ func (h *UserHandler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid profile id"}`, http.StatusBadRequest)
+		writeError(w, "invalid profile id", http.StatusBadRequest)
 		return
 	}
 
@@ -266,31 +296,31 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		MaxRating *string `json:"max_rating"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+		writeError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
 	if body.Name != nil {
 		if _, err := h.db.Exec(`UPDATE profiles SET name = ? WHERE id = ?`, *body.Name, id); err != nil {
-			http.Error(w, `{"error":"failed to update name"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update name", http.StatusInternalServerError)
 			return
 		}
 	}
 	if body.AvatarURL != nil {
 		if _, err := h.db.Exec(`UPDATE profiles SET avatar_url = ? WHERE id = ?`, *body.AvatarURL, id); err != nil {
-			http.Error(w, `{"error":"failed to update avatar"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update avatar", http.StatusInternalServerError)
 			return
 		}
 	}
 	if body.IsKid != nil {
 		if _, err := h.db.Exec(`UPDATE profiles SET is_kid = ? WHERE id = ?`, *body.IsKid, id); err != nil {
-			http.Error(w, `{"error":"failed to update is_kid"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update is_kid", http.StatusInternalServerError)
 			return
 		}
 	}
 	if body.MaxRating != nil {
 		if _, err := h.db.Exec(`UPDATE profiles SET max_rating = ? WHERE id = ?`, *body.MaxRating, id); err != nil {
-			http.Error(w, `{"error":"failed to update max_rating"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update max_rating", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -301,11 +331,19 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) DeleteProfile(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid profile id"}`, http.StatusBadRequest)
+		writeError(w, "invalid profile id", http.StatusBadRequest)
 		return
 	}
+
+	var exists int
+	h.db.QueryRow(`SELECT COUNT(*) FROM profiles WHERE id = ?`, id).Scan(&exists)
+	if exists == 0 {
+		writeError(w, "not found", http.StatusNotFound)
+		return
+	}
+
 	if _, err := h.db.Exec(`DELETE FROM profiles WHERE id = ?`, id); err != nil {
-		http.Error(w, `{"error":"failed to delete profile"}`, http.StatusInternalServerError)
+		writeError(w, "failed to delete profile", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

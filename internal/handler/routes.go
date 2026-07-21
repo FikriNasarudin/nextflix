@@ -375,6 +375,7 @@ func (r *Router) mountAdmin() {
 	adminMux.Handle("PUT /api/v1/admin/collections/{id}", a(ch.Update))
 	adminMux.Handle("DELETE /api/v1/admin/collections/{id}", a(ch.Delete))
 	adminMux.Handle("PUT /api/v1/admin/collections/{id}/items", a(ch.SetItems))
+	adminMux.Handle("GET /api/v1/admin/collections/{id}/items", a(ch.Items))
 
 	adminMux.Handle("POST /api/v1/admin/scan", a(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if _, err := r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Manual scan started')`); err != nil {
@@ -382,6 +383,11 @@ func (r *Router) mountAdmin() {
 			return
 		}
 		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("Scanner: panic recovered: %v", rec)
+				}
+			}()
 			r.scanner.ScanAll()
 			r.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('scan', 'Scan complete')`)
 		}()
@@ -424,10 +430,14 @@ func (r *Router) mountAdmin() {
 		if list == nil {
 			list = []entry{}
 		}
+		if err := rows.Err(); err != nil {
+			writeError(w, "rows error", http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, list)
 	})))
 
-	r.mux.Handle("/api/v1/admin/", r.authMid(r.adminMid(adminMux)))
+	r.mux.Handle("/api/v1/admin/", adminMux)
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {

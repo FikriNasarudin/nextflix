@@ -31,7 +31,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		LIMIT ? OFFSET ?
 	`, limit, offset)
 	if err != nil {
-		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+		writeError(w, "database error", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -56,26 +56,22 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 			&i.ID, &i.LibraryID, &i.Title, &i.MediaType, &i.TmdbID, &i.Rating,
 			&i.DurationSeconds, &i.TrailerYoutubeID, &i.BackdropPath, &i.PosterPath, &i.CreatedAt,
 		); err != nil {
-			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			writeError(w, "scan error", http.StatusInternalServerError)
 			return
 		}
 		items = append(items, i)
 	}
-	if items == nil {
-		items = []item{}
+	if err := rows.Err(); err != nil {
+		writeError(w, "rows error", http.StatusInternalServerError)
+		return
 	}
-	var total int
-	h.db.QueryRow(`SELECT COUNT(*) FROM media_items`).Scan(&total)
-	writeJSON(w, map[string]any{
-		"items": items,
-		"total": total,
-	})
+	writeJSON(w, emptySlice(items))
 }
 
 func (h *MediaHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		writeError(w, "invalid id", http.StatusBadRequest)
 		return
 	}
 
@@ -86,31 +82,31 @@ func (h *MediaHandler) Update(w http.ResponseWriter, r *http.Request) {
 		TrailerYoutubeID *string `json:"trailer_youtube_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+		writeError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
 	if body.Title != nil {
 		if _, err := h.db.Exec(`UPDATE media_items SET title = ? WHERE id = ?`, *body.Title, id); err != nil {
-			http.Error(w, `{"error":"failed to update title"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update title", http.StatusInternalServerError)
 			return
 		}
 	}
 	if body.LibraryID != nil {
 		if _, err := h.db.Exec(`UPDATE media_items SET library_id = ? WHERE id = ?`, *body.LibraryID, id); err != nil {
-			http.Error(w, `{"error":"failed to update library"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update library", http.StatusInternalServerError)
 			return
 		}
 	}
 	if body.Rating != nil {
 		if _, err := h.db.Exec(`UPDATE media_items SET rating = ? WHERE id = ?`, *body.Rating, id); err != nil {
-			http.Error(w, `{"error":"failed to update rating"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update rating", http.StatusInternalServerError)
 			return
 		}
 	}
 	if body.TrailerYoutubeID != nil {
 		if _, err := h.db.Exec(`UPDATE media_items SET trailer_youtube_id = ? WHERE id = ?`, *body.TrailerYoutubeID, id); err != nil {
-			http.Error(w, `{"error":"failed to update trailer"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update trailer", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -121,10 +117,27 @@ func (h *MediaHandler) Update(w http.ResponseWriter, r *http.Request) {
 func (h *MediaHandler) Reencode(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		writeError(w, "invalid id", http.StatusBadRequest)
 		return
 	}
 
-	_ = id
+	var filePath string
+	if err := h.db.QueryRow(`SELECT file_path FROM media_items WHERE id = ?`, id).Scan(&filePath); err != nil {
+		if err == sql.ErrNoRows {
+			writeError(w, "not found", http.StatusNotFound)
+		} else {
+			writeError(w, "database error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	var hlsPath string
+	h.db.QueryRow(`SELECT COALESCE(hls_480p_path, '') FROM media_items WHERE id = ?`, id).Scan(&hlsPath)
+	if hlsPath != "" {
+		writeJSON(w, map[string]string{"status": "already encoded"})
+		return
+	}
+
+	h.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('encode', 'Re-encoding media ' || ?)`, filePath)
 	writeJSON(w, map[string]string{"status": "queued"})
 }

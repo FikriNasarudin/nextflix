@@ -18,7 +18,7 @@ func NewTagHandler(db *sql.DB) *TagHandler {
 func (h *TagHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`SELECT id, name, tmdb_genre_id FROM tags ORDER BY id`)
 	if err != nil {
-		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+		writeError(w, "database error", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -32,12 +32,16 @@ func (h *TagHandler) List(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var t tag
 		if err := rows.Scan(&t.ID, &t.Name, &t.TmdbGenreID); err != nil {
-			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			writeError(w, "scan error", http.StatusInternalServerError)
 			return
 		}
 		tags = append(tags, t)
 	}
-	writeJSON(w, tags)
+	if err := rows.Err(); err != nil {
+		writeError(w, "rows error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, emptySlice(tags))
 }
 
 func (h *TagHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -46,11 +50,11 @@ func (h *TagHandler) Create(w http.ResponseWriter, r *http.Request) {
 		TmdbGenreID *int64 `json:"tmdb_genre_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+		writeError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 	if body.Name == "" {
-		http.Error(w, `{"error":"name required"}`, http.StatusBadRequest)
+		writeError(w, "name required", http.StatusBadRequest)
 		return
 	}
 
@@ -59,7 +63,7 @@ func (h *TagHandler) Create(w http.ResponseWriter, r *http.Request) {
 		body.Name, body.TmdbGenreID,
 	)
 	if err != nil {
-		http.Error(w, `{"error":"tag already exists"}`, http.StatusConflict)
+		writeError(w, "tag already exists", http.StatusConflict)
 		return
 	}
 	id, _ := result.LastInsertId()
@@ -70,35 +74,52 @@ func (h *TagHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *TagHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		writeError(w, "invalid id", http.StatusBadRequest)
 		return
 	}
 
 	var body struct {
-		Name *string `json:"name"`
+		Name        *string `json:"name"`
+		TmdbGenreID *int64  `json:"tmdb_genre_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+		writeError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
 	if body.Name != nil {
 		if _, err := h.db.Exec(`UPDATE tags SET name = ? WHERE id = ?`, *body.Name, id); err != nil {
-			http.Error(w, `{"error":"failed to update tag"}`, http.StatusInternalServerError)
+			writeError(w, "failed to update tag", http.StatusInternalServerError)
 			return
 		}
 	}
+	if body.TmdbGenreID != nil {
+		if _, err := h.db.Exec(`UPDATE tags SET tmdb_genre_id = ? WHERE id = ?`, *body.TmdbGenreID, id); err != nil {
+			writeError(w, "failed to update tmdb_genre_id", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *TagHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		writeError(w, "invalid id", http.StatusBadRequest)
 		return
 	}
+
+	var exists int
+	h.db.QueryRow(`SELECT COUNT(*) FROM tags WHERE id = ?`, id).Scan(&exists)
+	if exists == 0 {
+		writeError(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	h.db.Exec(`DELETE FROM media_tags WHERE tag_id = ?`, id)
 	if _, err := h.db.Exec(`DELETE FROM tags WHERE id = ?`, id); err != nil {
-		http.Error(w, `{"error":"failed to delete tag"}`, http.StatusInternalServerError)
+		writeError(w, "failed to delete tag", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -107,7 +128,7 @@ func (h *TagHandler) Delete(w http.ResponseWriter, r *http.Request) {
 func (h *TagHandler) ListMediaTags(w http.ResponseWriter, r *http.Request) {
 	mid, err := strconv.ParseInt(r.PathValue("mid"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid media id"}`, http.StatusBadRequest)
+		writeError(w, "invalid media id", http.StatusBadRequest)
 		return
 	}
 
@@ -116,7 +137,7 @@ func (h *TagHandler) ListMediaTags(w http.ResponseWriter, r *http.Request) {
 		mid,
 	)
 	if err != nil {
-		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+		writeError(w, "database error", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -129,18 +150,22 @@ func (h *TagHandler) ListMediaTags(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var t tag
 		if err := rows.Scan(&t.ID, &t.Name); err != nil {
-			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
+			writeError(w, "scan error", http.StatusInternalServerError)
 			return
 		}
 		tags = append(tags, t)
 	}
-	writeJSON(w, tags)
+	if err := rows.Err(); err != nil {
+		writeError(w, "rows error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, emptySlice(tags))
 }
 
 func (h *TagHandler) SetMediaTags(w http.ResponseWriter, r *http.Request) {
 	mid, err := strconv.ParseInt(r.PathValue("mid"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"invalid media id"}`, http.StatusBadRequest)
+		writeError(w, "invalid media id", http.StatusBadRequest)
 		return
 	}
 
@@ -148,22 +173,29 @@ func (h *TagHandler) SetMediaTags(w http.ResponseWriter, r *http.Request) {
 		TagIDs []int64 `json:"tag_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+		writeError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
 	tx, err := h.db.Begin()
 	if err != nil {
-		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+		writeError(w, "database error", http.StatusInternalServerError)
 		return
 	}
+	defer tx.Rollback()
 
-	tx.Exec(`DELETE FROM media_tags WHERE media_id = ?`, mid)
+	if _, err := tx.Exec(`DELETE FROM media_tags WHERE media_id = ?`, mid); err != nil {
+		writeError(w, "failed to clear tags", http.StatusInternalServerError)
+		return
+	}
 	for _, tid := range body.TagIDs {
-		tx.Exec(`INSERT OR IGNORE INTO media_tags (media_id, tag_id) VALUES (?, ?)`, mid, tid)
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO media_tags (media_id, tag_id) VALUES (?, ?)`, mid, tid); err != nil {
+			writeError(w, "failed to insert tag", http.StatusInternalServerError)
+			return
+		}
 	}
 	if err := tx.Commit(); err != nil {
-		http.Error(w, `{"error":"failed to commit"}`, http.StatusInternalServerError)
+		writeError(w, "failed to commit", http.StatusInternalServerError)
 		return
 	}
 
