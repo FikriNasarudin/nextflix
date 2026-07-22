@@ -21,7 +21,7 @@ import (
 	"nextflix/internal/scanner"
 )
 
-const EncoderVersion = "2"
+const EncoderVersion = "3"
 
 type Encoder struct {
 	db     *sql.DB
@@ -152,7 +152,7 @@ type rendition struct {
 
 var renditions = []rendition{
 	{name: "480p", res: "scale=-2:480", bitrate: "800k", maxrate: "1000k", bufsize: "1600k"},
-	{name: "1080p", res: "scale=-2:1080", bitrate: "4000k", maxrate: "5000k", bufsize: "8000k"},
+	{name: "1080p", res: "scale=-2:1080", bitrate: "6000k", maxrate: "8000k", bufsize: "12000k"},
 }
 
 var timeRegex = regexp.MustCompile(`time=(\d+):(\d+):(\d+\.\d+)`)
