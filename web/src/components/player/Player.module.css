@@ -207,6 +207,142 @@
   animation: spin2 .8s linear infinite;
 }
 
+.controlBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: linear-gradient(0deg, var(--void) 0%, transparent 100%);
+  padding: 36px var(--space-md) calc(8px + env(safe-area-inset-bottom,0px));
+  opacity: 1;
+  transition: opacity .3s ease;
+  pointer-events: auto;
+}
+.controlHidden { opacity: 0; pointer-events: none; }
+.controlRow { display: flex; align-items: center; gap: var(--space-sm); }
+.controlRowBottom { margin-top: 2px; justify-content: space-between; }
+.ctrlLeft { display: flex; align-items: center; gap: 6px; }
+.ctrlRight { display: flex; align-items: center; gap: 6px; }
+.ctrlBtn {
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: .85;
+  transition: opacity .15s, transform .1s;
+  border-radius: 4px;
+  min-width: 36px;
+  min-height: 36px;
+}
+.ctrlBtn:hover { opacity: 1; transform: scale(1.1); }
+.progressWrap {
+  flex: 1;
+  position: relative;
+  height: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+.progressTrack {
+  position: relative;
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255,255,255,.2);
+  transition: height .15s ease;
+  overflow: hidden;
+}
+.progressWrap:hover .progressTrack { height: 5px; }
+.progressBuffer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: rgba(255,255,255,.15);
+  border-radius: 2px;
+  transition: width .25s ease;
+  width: 0;
+}
+.progressPlayed {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-glow, #e7b4ff), var(--accent, #00fbfb));
+  border-radius: 2px;
+  z-index: 1;
+  width: 0;
+  transition: width .1s linear;
+}
+.timeDisplay {
+  font-size: 13px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-weight: 500;
+  min-width: 100px;
+  text-align: center;
+}
+.endTimeBadge {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.resBadge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255,255,255,.1);
+  color: var(--muted);
+  white-space: nowrap;
+  letter-spacing: .3px;
+}
+.trackSelect {
+  background: rgba(255,255,255,.08);
+  color: var(--text);
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  max-width: 100px;
+  backdrop-filter: blur(4px);
+}
+.trackSelect:focus { outline: none; border-color: var(--accent); }
+.trackSelect option { background: #1a1a2e; color: var(--text); }
+.volumeSlider {
+  width: 60px;
+  height: 3px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255,255,255,.25);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.volumeSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text);
+  border: none;
+}
+.volumeSlider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text);
+  border: none;
+}
+
 @keyframes spin {
   to { transform: translate(-50%, -50%) rotate(360deg); }
 }
@@ -221,16 +357,37 @@
   .skipIntroBtn { bottom: 90px; left: var(--space-md); font-size: .8rem; padding: 8px 18px; }
   .topOverlay { padding: calc(12px + env(safe-area-inset-top,0px)) var(--space-md) var(--space-md); }
   .centerPlay { width: 56px; height: 56px; }
+  .controlBar { padding: 28px var(--space-sm) calc(6px + env(safe-area-inset-bottom,0px)); }
+  .controlRow { gap: 4px; }
+  .ctrlBtn { min-width: 40px; min-height: 40px; padding: 4px; }
+  .ctrlBtn svg { width: 20px; height: 20px; }
+  .timeDisplay { font-size: 11px; min-width: 80px; }
+  .volumeSlider { width: 40px; }
+  .resBadge { font-size: 9px; padding: 1px 4px; }
+  .trackSelect { font-size: 10px; max-width: 80px; padding: 2px 4px; }
+  .endTimeBadge { font-size: 10px; }
+  @media (orientation: portrait) {
+    .volumeSlider { display: none; }
+  }
 }
 
-/* video.js dark theme overrides — app tokens: --accent #00fbfb */
-.wrapper :global(.video-js) {
-  width: 100% !important;
-  height: 100% !important;
-  font-family: 'Inter', system-ui, sans-serif;
+@media (max-width: 480px) {
+  .controlBar { padding: 24px 6px calc(4px + env(safe-area-inset-bottom,0px)); }
+  .ctrlBtn { min-width: 36px; min-height: 36px; padding: 2px; }
+  .ctrlBtn svg { width: 18px; height: 18px; }
+  .timeDisplay { font-size: 10px; min-width: 70px; }
 }
-.wrapper :global(.video-js .vjs-tech) {
-  object-fit: contain;
+
+@media (max-width: 400px) {
+  .playerTitle { font-size: .8rem; max-width: 120px; }
+  .timeDisplay { font-size: 10px; min-width: 62px; }
+  .ctrlBtn { min-width: 32px; min-height: 32px; padding: 2px; }
+  .ctrlBtn svg { width: 16px; height: 16px; }
+  .endTimeBadge { display: none; }
+}
+
+.wrapper :global(.vjs-control-bar) {
+  display: none !important;
 }
 .wrapper :global(.video-js .vjs-big-play-button) {
   border: 2px solid var(--accent, #00fbfb);
@@ -252,49 +409,16 @@
   border-color: var(--accent, #00fbfb);
   transform: scale(1.05);
 }
-.wrapper :global(.vjs-control-bar) {
-  background: linear-gradient(0deg, rgba(10,10,15,.92) 0, transparent 100%);
-  padding-bottom: 8px;
+.wrapper :global(.video-js .vjs-tech) {
+  object-fit: contain;
 }
-.wrapper :global(.video-js .vjs-play-progress) {
-  background: var(--accent, #00fbfb) !important;
+.wrapper :global(.video-js) {
+  width: 100% !important;
+  height: 100% !important;
+  font-family: 'Inter', system-ui, sans-serif;
 }
-.wrapper :global(.video-js .vjs-slider-bar) {
-  background: var(--accent, #00fbfb) !important;
-}
-.wrapper :global(.video-js .vjs-load-progress) {
-  background: rgba(255,255,255,.15) !important;
-}
-.wrapper :global(.video-js .vjs-load-progress div) {
-  background: rgba(255,255,255,.08) !important;
-}
-.wrapper :global(.video-js .vjs-volume-level) {
-  background: var(--accent, #00fbfb) !important;
-}
-.wrapper :global(.video-js .vjs-time-tooltip) {
-  display: none;
-}
-.wrapper :global(.video-js .vjs-menu-content) {
-  background: #2a292f !important;
-  border: 1px solid #4e4351 !important;
-  border-radius: 6px !important;
-}
-.wrapper :global(.video-js .vjs-menu-item) {
-  color: #e4e1e9 !important;
-  font-size: .85rem !important;
-}
-.wrapper :global(.video-js .vjs-menu-item.vjs-selected) {
-  background: var(--accent, #00fbfb) !important;
-  color: #0a0a0f !important;
-}
-.wrapper :global(.video-js .vjs-menu-item:hover) {
-  background: #4e4351 !important;
-}
-.wrapper :global(.video-js .vjs-button:hover) {
-  color: var(--accent, #00fbfb) !important;
-}
-.wrapper :global(.video-js .vjs-icon-cog) {
-  font-size: 1.2rem;
+.wrapper :global(.video-js .vjs-loading-spinner) {
+  z-index: 10;
 }
 
 .audioSelect {
