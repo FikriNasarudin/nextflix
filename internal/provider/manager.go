@@ -138,7 +138,7 @@ func (pm *ProviderManager) RefreshAll(ctx context.Context) error {
 			duration_seconds, trailer_youtube_id, backdrop_path, poster_path,
 			show_name, season_number, episode_number, episode_title, year, created_at
 		FROM media_items
-		WHERE tmdb_id > 0 AND (overview = '' OR overview IS NULL)
+		WHERE tmdb_id > 0 AND ((overview = '' OR overview IS NULL) OR NOT EXISTS (SELECT 1 FROM media_credits WHERE media_id = media_items.id))
 	`)
 	if err != nil {
 		return err

@@ -121,7 +121,7 @@ export async function apiFetch(path, opts = {}) {
       return data
     } catch (err) {
       showToast('Network error', 'error')
-      return null
+      throw err
     } finally {
       if (isGet && !skipCache) _inflight.delete(cacheKey)
     }

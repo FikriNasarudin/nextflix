@@ -36,15 +36,16 @@ func (h *RecommendationHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *RecommendationHandler) getContinueWatching(profileID int64) []any {
 	rows, err := h.db.Query(`
 		SELECT pp.media_id, mi.title,
-		       CASE WHEN mp.file_path IS NOT NULL THEN '' WHEN si.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path,
+		       MAX(CASE WHEN mp.file_path IS NOT NULL THEN '' WHEN si.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END) as poster_path,
 		       pp.position_seconds, mi.duration_seconds,
-		       COALESCE(mi.backdrop_path, mb.file_path, '') as backdrop_path
+		       MAX(COALESCE(mi.backdrop_path, mb.file_path, '')) as backdrop_path
 		FROM playback_progress pp
 		JOIN media_items mi ON mi.id = pp.media_id
 		LEFT JOIN media_images mp ON mp.media_id = mi.id AND mp.image_type = 'poster' AND mp.is_primary = 1
 		LEFT JOIN media_images mb ON mb.media_id = mi.id AND mb.image_type = 'backdrop' AND mb.is_primary = 1
 		LEFT JOIN show_images si ON si.show_name = mi.show_name AND si.image_type = 'poster' AND si.season_number = 0
 		WHERE pp.profile_id = ? AND pp.is_finished = 0
+		GROUP BY pp.media_id, pp.position_seconds, pp.is_finished, pp.updated_at, mi.title, mi.duration_seconds
 		ORDER BY pp.updated_at DESC
 		LIMIT 20
 	`, profileID)
@@ -63,6 +64,7 @@ func (h *RecommendationHandler) getContinueWatching(profileID int64) []any {
 			continue
 		}
 		items = append(items, map[string]any{
+			"id":               mediaID,
 			"media_id":         mediaID,
 			"title":            title,
 			"poster_path":      posterPath,
@@ -80,8 +82,8 @@ func (h *RecommendationHandler) getContinueWatching(profileID int64) []any {
 func (h *RecommendationHandler) getCached(section string, profileID int64) []any {
 	rows, err := h.db.Query(`
 		SELECT pr.media_id, mi.title,
-		       CASE WHEN mp.file_path IS NOT NULL THEN '' WHEN si.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path,
-		       COALESCE(mi.backdrop_path, mb.file_path, '') as backdrop_path,
+		       MAX(CASE WHEN mp.file_path IS NOT NULL THEN '' WHEN si.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END) as poster_path,
+		       MAX(COALESCE(mi.backdrop_path, mb.file_path, '')) as backdrop_path,
 		       pr.score, mi.duration_seconds
 		FROM profile_recommendations pr
 		JOIN media_items mi ON mi.id = pr.media_id
@@ -89,6 +91,7 @@ func (h *RecommendationHandler) getCached(section string, profileID int64) []any
 		LEFT JOIN media_images mb ON mb.media_id = mi.id AND mb.image_type = 'backdrop' AND mb.is_primary = 1
 		LEFT JOIN show_images si ON si.show_name = mi.show_name AND si.image_type = 'poster' AND si.season_number = 0
 		WHERE pr.profile_id = ? AND pr.section = ?
+		GROUP BY pr.media_id, mi.title, pr.score, mi.duration_seconds
 		ORDER BY pr.score DESC
 		LIMIT 20
 	`, profileID, section)
@@ -108,6 +111,7 @@ func (h *RecommendationHandler) getCached(section string, profileID int64) []any
 			continue
 		}
 		items = append(items, map[string]any{
+			"id":               mediaID,
 			"media_id":         mediaID,
 			"title":            title,
 			"poster_path":      posterPath,

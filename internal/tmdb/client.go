@@ -13,6 +13,8 @@ import (
 
 var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
+const maxRetries = 3
+
 func HTTPClient() *http.Client {
 	return defaultHTTPClient
 }
@@ -61,34 +63,53 @@ func (c *Client) GetContext(ctx context.Context, path string, result any) error 
 		return err
 	}
 
-	select {
-	case <-c.rate.C:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		select {
+		case <-c.rate.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 
-	url := c.baseURL + path
-	if strings.ContainsRune(path, '?') {
-		url += "&api_key=" + key
-	} else {
-		url += "?api_key=" + key
-	}
+		url := c.baseURL + path
+		if strings.ContainsRune(path, '?') {
+			url += "&api_key=" + key
+		} else {
+			url += "?api_key=" + key
+		}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return fmt.Errorf("create request: %w", err)
+		}
 
-	resp, err := defaultHTTPClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("http get %s: %w", url, err)
-	}
-	defer resp.Body.Close()
+		resp, err := defaultHTTPClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("http get %s: %w", url, err)
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("tmdb %s: status=%d body=%s", path, resp.StatusCode, string(body))
-	}
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("tmdb %s: status=%d body=%s", path, resp.StatusCode, string(body))
+			if (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) && attempt < maxRetries-1 {
+				backoff := time.Duration(1<<attempt) * time.Second
+				select {
+				case <-time.After(backoff):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				continue
+			}
+			return lastErr
+		}
 
-	return json.NewDecoder(resp.Body).Decode(result)
+		err = json.NewDecoder(resp.Body).Decode(result)
+		resp.Body.Close()
+		if err != nil {
+			return fmt.Errorf("decode tmdb response: %w", err)
+		}
+		return nil
+	}
+	return lastErr
 }

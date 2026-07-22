@@ -36,23 +36,24 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	query = `
 		SELECT mi.id, mi.library_id, mi.title, mi.media_type, mi.tmdb_id, mi.rating,
 		       mi.duration_seconds, mi.trailer_youtube_id,
-		       COALESCE(mi.backdrop_path, mb.file_path, '') as backdrop_path,
-		CASE WHEN mp.file_path IS NOT NULL THEN '' WHEN si.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path,
+		       MAX(COALESCE(mi.backdrop_path, mb.file_path, '')) as backdrop_path,
+		MAX(CASE WHEN mp.file_path IS NOT NULL THEN '' WHEN si.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END) as poster_path,
 		       mi.show_name, mi.season_number, mi.episode_number, mi.episode_title, mi.year, mi.overview,
-		       COALESCE(mi.hls_480p_path, '') as hls_480p_path,
+		       MAX(COALESCE(mi.hls_480p_path, '')) as hls_480p_path,
 		       mi.file_path,
 		COALESCE((SELECT GROUP_CONCAT(t.name, '||') FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE mt.media_id = mi.id), '') as tags,
 		       mi.created_at,
-		       COALESCE(v.codec, '') as video_codec,
-		       COALESCE(v.width, 0) as width,
-		       COALESCE(v.height, 0) as height,
-		       COALESCE(v.is_hdr, 0) as is_hdr
+		       MAX(COALESCE(v.codec, '')) as video_codec,
+		       MAX(COALESCE(v.width, 0)) as width,
+		       MAX(COALESCE(v.height, 0)) as height,
+		       MAX(COALESCE(v.is_hdr, 0)) as is_hdr
 		FROM media_items mi
 		LEFT JOIN media_images mb ON mb.media_id = mi.id AND mb.image_type = 'backdrop' AND mb.is_primary = 1
 		LEFT JOIN media_images mp ON mp.media_id = mi.id AND mp.image_type = 'poster' AND mp.is_primary = 1
 		LEFT JOIN show_images si ON si.show_name = mi.show_name AND si.image_type = 'poster' AND si.season_number = 0
 		LEFT JOIN media_video_tracks v ON v.media_id = mi.id AND v.is_default = 1
 		WHERE 1=1
+		GROUP BY mi.id
 	`
 
 	hasLibraryRestriction := false

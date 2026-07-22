@@ -83,7 +83,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(m.overview, ''), COALESCE(m.year, ''), COALESCE(m.show_name, ''), COALESCE(m.season_number, 0), COALESCE(m.episode_number, 0), COALESCE(m.episode_title, ''),
 		       COALESCE(m.enrich_status, 'pending'), COALESCE(m.enrich_error, ''), COALESCE(m.last_enriched_at, '')
 		FROM media_items m
-		LEFT JOIN media_video_tracks v ON v.media_id = m.id AND v.is_default = 1
+		LEFT JOIN (SELECT media_id, codec, width, height, is_default FROM media_video_tracks WHERE is_default = 1 GROUP BY media_id) v ON v.media_id = m.id
 		LEFT JOIN (SELECT media_id, COUNT(*) AS count FROM media_subtitles GROUP BY media_id) s ON s.media_id = m.id
 		LEFT JOIN (SELECT media_id, COUNT(*) AS count FROM media_audio_tracks GROUP BY media_id) a ON a.media_id = m.id
 		LEFT JOIN (

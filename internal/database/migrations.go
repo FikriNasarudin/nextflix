@@ -364,6 +364,7 @@ func runVersionedMigrations(db *sql.DB) error {
 		{9, migrateV9},
 		{10, migrateV10},
 		{11, migrateV11},
+		{12, migrateV12},
 	}
 	for _, m := range migrations {
 		if v < m.version {
@@ -470,6 +471,27 @@ func migrateV11(db *sql.DB) error {
 	db.Exec(`UPDATE media_items SET enrich_status = 'pending' WHERE tmdb_id IS NULL OR tmdb_id = 0`)
 
 	log.Println("v11: enrichment status columns added, backfill complete")
+	return nil
+}
+
+func migrateV12(db *sql.DB) error {
+	stmts := []string{
+		// Dedupe media_images: keep one row per (media_id, image_type, file_path)
+		`DELETE FROM media_images WHERE id NOT IN (SELECT MIN(id) FROM media_images GROUP BY media_id, image_type, file_path)`,
+		// Prevent future duplicates
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_media_images_unique ON media_images(media_id, image_type, file_path)`,
+
+		// Dedupe media_video_tracks: keep one row per (media_id, stream_index)
+		`DELETE FROM media_video_tracks WHERE id NOT IN (SELECT MIN(id) FROM media_video_tracks GROUP BY media_id, stream_index)`,
+		// Prevent future duplicates
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_media_video_tracks_unique ON media_video_tracks(media_id, stream_index)`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			return fmt.Errorf("v12 stmt: %w\nSQL: %s", err, s)
+		}
+	}
+	log.Println("v12: deduped media_images and media_video_tracks, added unique indexes")
 	return nil
 }
 

@@ -312,12 +312,13 @@ func (r *Router) mountAssets() {
 
 		rows, err := r.db.Query(`
 			SELECT mi.id, mi.title, mi.media_type, mi.duration_seconds,
-			CASE WHEN mp.file_path IS NOT NULL THEN '' WHEN si.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path
+			MAX(CASE WHEN mp.file_path IS NOT NULL THEN '' WHEN si.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END) as poster_path
 			FROM collection_items ci
 			JOIN media_items mi ON mi.id = ci.media_id
 			LEFT JOIN media_images mp ON mp.media_id = mi.id AND mp.image_type = 'poster' AND mp.is_primary = 1
 			LEFT JOIN show_images si ON si.show_name = mi.show_name AND si.image_type = 'poster' AND si.season_number = 0
 			WHERE ci.collection_id = ?
+			GROUP BY mi.id
 			ORDER BY ci.sort_order, mi.title
 		`, collID)
 		if err != nil { writeError(w, "database error", http.StatusInternalServerError); return }

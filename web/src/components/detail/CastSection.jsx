@@ -3,12 +3,13 @@ import { apiFetch, imageUrl } from '../../api/client'
 import styles from './CastSection.module.css'
 
 export default function CastSection({ mediaId }) {
-  const { data: credits } = useQuery({
+  const { data: credits, isLoading } = useQuery({
     queryKey: ['credits', mediaId],
     queryFn: () => apiFetch('/media/' + mediaId + '/credits'),
     enabled: !!mediaId,
   })
 
+  if (isLoading && !!mediaId) return <div className={styles.section}><h3 className="f-title-md">Cast & Crew</h3><div className={styles.row} style={{ gap: 16 }}>{Array.from({ length: 6 }).map((_, i) => <div key={i} className={styles.person}><div className={styles.avatarWrap} style={{ background: 'var(--surface-container)' }} /><div style={{ height: 12, width: 80, margin: '0 auto', background: 'var(--surface-container)', borderRadius: 4 }} /></div>)}</div></div>
   if (!credits || credits.length === 0) return null
 
   const cast = credits.filter(c => c.role === 'actor')

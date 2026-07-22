@@ -109,7 +109,7 @@ func (m *LibraryManager) RefreshMetadata() {
 			duration_seconds, trailer_youtube_id, backdrop_path, poster_path,
 			show_name, season_number, episode_number, episode_title, year, created_at, overview
 		FROM media_items
-		WHERE (overview = '' OR overview IS NULL) OR (tmdb_id IS NULL OR tmdb_id = 0)
+		WHERE (overview = '' OR overview IS NULL) OR (tmdb_id IS NULL OR tmdb_id = 0) OR NOT EXISTS (SELECT 1 FROM media_credits WHERE media_id = media_items.id)
 	`)
 	if err != nil {
 		log.Printf("Library: refresh query error: %v", err)

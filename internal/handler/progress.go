@@ -23,11 +23,12 @@ func (h *ProgressHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`
 		SELECT pp.media_id, pp.position_seconds, pp.is_finished, pp.updated_at,
 		       mi.title, mi.duration_seconds,
-		       CASE WHEN mp.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path
+		       MAX(CASE WHEN mp.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END) as poster_path
 		FROM playback_progress pp
 		JOIN media_items mi ON mi.id = pp.media_id
 		LEFT JOIN media_images mp ON mp.media_id = mi.id AND mp.image_type = 'poster' AND mp.is_primary = 1
 		WHERE pp.profile_id = ?
+		GROUP BY pp.media_id, pp.position_seconds, pp.is_finished, pp.updated_at, mi.title, mi.duration_seconds
 		ORDER BY pp.updated_at DESC
 	`, profileID)
 	if err != nil {

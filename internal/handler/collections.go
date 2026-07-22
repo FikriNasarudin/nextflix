@@ -97,12 +97,13 @@ func (h *CollectionHandler) Items(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.db.Query(`
 		SELECT mi.id, mi.title, mi.media_type,
-		       CASE WHEN mp.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END as poster_path,
+		       MAX(CASE WHEN mp.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END) as poster_path,
 		       mi.duration_seconds
 		FROM collection_items ci
 		JOIN media_items mi ON mi.id = ci.media_id
 		LEFT JOIN media_images mp ON mp.media_id = mi.id AND mp.image_type = 'poster' AND mp.is_primary = 1
 		WHERE ci.collection_id = ?
+		GROUP BY mi.id
 		ORDER BY ci.sort_order, mi.title
 	`, id)
 	if err != nil {

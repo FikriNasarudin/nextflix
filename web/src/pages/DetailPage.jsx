@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { apiFetch, backdropUrl, imageUrl } from '../api/client'
 import EpisodeList from '../components/detail/EpisodeList'
 import ContentRow from '../components/home/ContentRow'
+import MediaCard from '../components/home/MediaCard'
 import styles from '../components/detail/DetailPage.module.css'
 
 export default function DetailPage() {
@@ -30,6 +31,12 @@ export default function DetailPage() {
         similar: allMedia.filter(m => m.id !== parseInt(id)).slice(0, 12),
       }
     },
+  })
+
+  const { data: collection } = useQuery({
+    queryKey: ['media-collection', id],
+    queryFn: () => apiFetch('/media/' + id + '/collection'),
+    enabled: !!id,
   })
 
   const item = allData?.item
@@ -111,6 +118,19 @@ export default function DetailPage() {
               ))}
             </select>
             <EpisodeList episodes={seasonEpisodes} onPlay={handlePlay} activeId={item.id} />
+          </div>
+        )}
+
+        {collection && collection.items && collection.items.length > 0 && (
+          <div style={{ marginTop: 36 }}>
+            <h3 className="f-title-md" style={{ marginBottom: 12 }}>
+              Part of <span style={{ color: 'var(--primary)' }}>{collection.name}</span>
+            </h3>
+            <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8, scrollbarWidth: 'thin', scrollbarColor: 'var(--outline-variant) transparent' }}>
+              {collection.items.map(item => (
+                <MediaCard key={item.id} item={item} />
+              ))}
+            </div>
           </div>
         )}
 

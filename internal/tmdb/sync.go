@@ -376,14 +376,24 @@ func (s *Sync) enrichItem(m mediaRow) {
 
 	if m.MediaType == "movie" && detail.BelongsToCollection != nil {
 		coll := detail.BelongsToCollection
+
+		var collOverview string
+		var collDetail struct {
+			Overview string `json:"overview"`
+		}
+		if err := s.cli.GetContext(ctx, fmt.Sprintf("/collection/%d", coll.ID), &collDetail); err == nil {
+			collOverview = collDetail.Overview
+		}
+
 		s.db.Exec(`
-			INSERT INTO collections (tmdb_collection_id, name, poster_path, backdrop_path)
-			VALUES (?, ?, ?, ?)
+			INSERT INTO collections (tmdb_collection_id, name, poster_path, backdrop_path, overview)
+			VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT(tmdb_collection_id) DO UPDATE SET
 				name = excluded.name,
 				poster_path = excluded.poster_path,
-				backdrop_path = excluded.backdrop_path
-		`, coll.ID, coll.Name, coll.PosterPath, coll.BackdropPath)
+				backdrop_path = excluded.backdrop_path,
+				overview = excluded.overview
+		`, coll.ID, coll.Name, coll.PosterPath, coll.BackdropPath, collOverview)
 
 		var collID int64
 		s.db.QueryRow(`SELECT id FROM collections WHERE tmdb_collection_id = ?`, coll.ID).Scan(&collID)
