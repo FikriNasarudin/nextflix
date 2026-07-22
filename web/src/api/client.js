@@ -35,9 +35,16 @@ export function isSlowConnection() {
   return conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g')
 }
 
+const unsupportedAudioCodecs = new Set([
+  'ac3', 'eac3', 'dts', 'dca', 'truehd', 'mp2', 'mp3',
+  'opus', 'vorbis', 'flac', 'pcm_s16le', 'pcm_s24le',
+])
+
 export function canPlayDirect(item) {
-  const { video_codec: codec, container, is_hdr } = item
+  const { video_codec: codec, audio_codec, container, is_hdr } = item
   if (!container) return false
+
+  if (audio_codec && unsupportedAudioCodecs.has(audio_codec)) return false
 
   const mime = 'video/' + container
   const el = document.createElement('video')

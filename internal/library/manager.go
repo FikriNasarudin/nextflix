@@ -34,6 +34,7 @@ func New(db *sql.DB, cfg *config.Config, encoderCh chan<- scanner.EncoderJob) *L
 		cfg.Data.CollectionsDir,
 		cfg.Encoder.HLSOutputDir,
 		filepath.Join(filepath.Dir(cfg.Database.Path), "images"),
+		filepath.Join(cfg.Data.Dir, "subtitles"),
 	}
 	for _, d := range dirs {
 		if d == "" {
@@ -65,6 +66,7 @@ func New(db *sql.DB, cfg *config.Config, encoderCh chan<- scanner.EncoderJob) *L
 		namingOpts,
 		encoderCh,
 		filepath.Join(filepath.Dir(cfg.Database.Path), "images"),
+		filepath.Join(cfg.Data.Dir, "subtitles"),
 	)
 
 	return &LibraryManager{

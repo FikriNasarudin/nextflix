@@ -46,12 +46,15 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		       MAX(COALESCE(v.codec, '')) as video_codec,
 		       MAX(COALESCE(v.width, 0)) as width,
 		       MAX(COALESCE(v.height, 0)) as height,
-		       MAX(COALESCE(v.is_hdr, 0)) as is_hdr
+		       MAX(COALESCE(v.is_hdr, 0)) as is_hdr,
+		       COALESCE(a.codec, '') as audio_codec,
+		       COALESCE(a.channels, 0) as audio_channels
 		FROM media_items mi
 		LEFT JOIN media_images mb ON mb.media_id = mi.id AND mb.image_type = 'backdrop' AND mb.is_primary = 1
 		LEFT JOIN media_images mp ON mp.media_id = mi.id AND mp.image_type = 'poster' AND mp.is_primary = 1
 		LEFT JOIN show_images si ON si.show_name = mi.show_name AND si.image_type = 'poster' AND si.season_number = 0
 		LEFT JOIN media_video_tracks v ON v.media_id = mi.id AND v.is_default = 1
+		LEFT JOIN media_audio_tracks a ON a.media_id = mi.id AND a.is_default = 1
 		WHERE 1=1
 	`
 
@@ -111,6 +114,8 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		Width            int      `json:"width"`
 		Height           int      `json:"height"`
 		IsHDR            bool     `json:"is_hdr"`
+		AudioCodec       string   `json:"audio_codec"`
+		AudioChannels    int      `json:"audio_channels"`
 		Tags             []string `json:"tags"`
 		CreatedAt        string   `json:"created_at"`
 	}
@@ -125,6 +130,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 			&i.ShowName, &i.SeasonNumber, &i.EpisodeNumber, &i.EpisodeTitle, &i.Year, &i.Overview,
 			&i.HLS480pPath, &filePath, &tagsStr, &i.CreatedAt,
 			&i.VideoCodec, &i.Width, &i.Height, &i.IsHDR,
+			&i.AudioCodec, &i.AudioChannels,
 		); err != nil {
 			http.Error(w, `{"error":"scan error"}`, http.StatusInternalServerError)
 			return

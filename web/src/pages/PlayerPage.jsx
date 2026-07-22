@@ -19,14 +19,17 @@ export default function PlayerPage() {
   })
 
   const item = (allMedia || []).find(m => m.id === parseInt(id))
-  const similarItems = (allMedia || []).filter(m => m.id !== parseInt(id)).slice(0, 6)
+
+  const { data: recs } = useQuery({
+    queryKey: ['player-recs', id],
+    queryFn: () => apiFetch('/recommendations?media_id=' + id + '&limit=6'),
+    enabled: !!item,
+  })
+
+  const similarItems = recs?.items || (allMedia || []).filter(m => m.id !== parseInt(id)).slice(0, 6)
 
   const handleClose = () => {
     navigate(-1)
-  }
-
-  const handleEpisodeSelect = (ep) => {
-    navigate('/watch/' + ep.id, { replace: true })
   }
 
   if (!item) {
@@ -43,7 +46,6 @@ export default function PlayerPage() {
       allMedia={allMedia || []}
       similarItems={similarItems}
       onClose={handleClose}
-      onEpisodeSelect={handleEpisodeSelect}
     />
   )
 }

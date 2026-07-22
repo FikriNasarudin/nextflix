@@ -141,6 +141,7 @@ type Scanner struct {
 	encoderCh chan<- EncoderJob
 	progress  *ScanProgress
 	imageDir  string
+	subsDir   string
 }
 
 var videoExts = map[string]bool{
@@ -153,9 +154,12 @@ var videoExts = map[string]bool{
 	".m4v":  true,
 }
 
-func New(db *sql.DB, cfg config.ScannerConfig, opts *resolver.NamingOptions, encoderCh chan<- EncoderJob, imageDir string) *Scanner {
+func New(db *sql.DB, cfg config.ScannerConfig, opts *resolver.NamingOptions, encoderCh chan<- EncoderJob, imageDir, subsDir string) *Scanner {
 	if imageDir == "" {
 		imageDir = "./data/images"
+	}
+	if subsDir == "" {
+		subsDir = "./data/subtitles"
 	}
 	return &Scanner{
 		db:        db,
@@ -165,6 +169,7 @@ func New(db *sql.DB, cfg config.ScannerConfig, opts *resolver.NamingOptions, enc
 		encoderCh: encoderCh,
 		progress:  &ScanProgress{},
 		imageDir:  imageDir,
+		subsDir:   subsDir,
 	}
 }
 
@@ -829,12 +834,42 @@ func (s *Scanner) storeVideoTracks(mediaID int64, streams []ProbeStream) {
 	}
 }
 
-func (s *Scanner) storeInternalSubtitles(mediaID int64, filePath string, streams []ProbeStream) {
+var textSubCodecs = map[string]bool{
+	"subrip": true, "srt": true, "ass": true, "ssa": true,
+	"mov_text": true, "webvtt": true, "vtt": true, "text": true,
+}
+
+var imageSubCodecs = map[string]bool{
+	"pgssub": true, "hdmv_pgs": true, "dvd_subtitle": true,
+	"dvdsub": true, "dvb_subtitle": true, "xsub": true,
+}
+
+func (s *Scanner) extractSubToVTT(mediaID int64, inputPath string, streamIndex int, outPath string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ffmpeg",
+		"-i", inputPath,
+		"-map", fmt.Sprintf("0:%d", streamIndex),
+		"-f", "webvtt",
+		"-y", outPath,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Scanner: subtitle extraction failed for media=%d stream=%d: %v\n%s", mediaID, streamIndex, err, string(out))
+		return false
+	}
+	return true
+}
+
+func (s *Scanner) storeInternalSubtitles(mediaID int64, inputPath string, streams []ProbeStream) {
+	subDir := filepath.Join(s.subsDir, fmt.Sprintf("%d", mediaID))
+	os.MkdirAll(subDir, 0755)
+
 	for _, stream := range streams {
 		if stream.CodecType != "subtitle" {
 			continue
 		}
-		// Ignore attached picture/cover (dvd_sub_pic etc.) only if explicitly non-printable.
 		lang := stream.Tags.Language
 		if lang == "" {
 			lang = "und"
@@ -847,9 +882,21 @@ func (s *Scanner) storeInternalSubtitles(mediaID int64, filePath string, streams
 		if strings.Contains(strings.ToLower(stream.Tags.Title), "default") {
 			isDefault = 1
 		}
+
+		codec := stream.CodecName
+		subPath := ""
+
+		if textSubCodecs[codec] {
+			outPath := filepath.Join(subDir, fmt.Sprintf("%d.vtt", stream.Index))
+			if s.extractSubToVTT(mediaID, inputPath, stream.Index, outPath) {
+				subPath = outPath
+				codec = "vtt"
+			}
+		}
+
 		s.db.Exec(
-			`INSERT OR IGNORE INTO media_subtitles (media_id, language, codec, file_path, is_forced, is_external, stream_index, is_default) VALUES (?, ?, ?, '', ?, 0, ?, ?)`,
-			mediaID, lang, stream.CodecName, isForced, stream.Index, isDefault,
+			`INSERT OR IGNORE INTO media_subtitles (media_id, language, codec, file_path, is_forced, is_external, stream_index, is_default) VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+			mediaID, lang, codec, subPath, isForced, stream.Index, isDefault,
 		)
 	}
 }

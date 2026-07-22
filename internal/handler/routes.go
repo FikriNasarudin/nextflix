@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -24,6 +27,16 @@ import (
 )
 
 const placeholderSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><rect width="300" height="450" fill="#1a1a2e"/><circle cx="150" cy="200" r="32" fill="none" stroke="#4e4351" stroke-width="2"/><polygon points="141,188 141,212 166,200" fill="#4e4351"/><text x="150" y="255" fill="#9a8c9d" font-family="sans-serif" font-size="11" text-anchor="middle">No Poster</text></svg>`
+
+var textSubCodecs = map[string]bool{
+	"subrip": true, "srt": true, "ass": true, "ssa": true,
+	"mov_text": true, "webvtt": true, "vtt": true, "text": true,
+}
+
+var imageSubCodecs = map[string]bool{
+	"pgssub": true, "hdmv_pgs": true, "dvd_subtitle": true,
+	"dvdsub": true, "dvb_subtitle": true, "xsub": true,
+}
 
 type Router struct {
 	mux         *http.ServeMux
@@ -381,35 +394,100 @@ func (r *Router) mountAssets() {
 	r.mux.Handle("GET /api/v1/subtitle/{id}/file", r.authMid(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		id, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
 		if err != nil { writeError(w, "invalid id", http.StatusBadRequest); return }
+
 		var path, codec string
-		err = r.db.QueryRow(`SELECT file_path, codec FROM media_subtitles WHERE id = ?`, id).Scan(&path, &codec)
+		var mediaID int64
+		var streamIndex int
+		err = r.db.QueryRow(`SELECT s.file_path, s.codec, s.media_id, s.stream_index FROM media_subtitles s WHERE s.id = ?`, id).Scan(&path, &codec, &mediaID, &streamIndex)
 		if err != nil { writeError(w, "not found", http.StatusNotFound); return }
 
-		if codec == "vtt" {
-			w.Header().Set("Content-Type", "text/vtt")
+		// Fast path: file already on disk
+		if path != "" {
+			if codec == "vtt" || codec == "webvtt" {
+				w.Header().Set("Content-Type", "text/vtt")
+				w.Header().Set("Cache-Control", "public, max-age=86400")
+				http.ServeFile(w, req, path)
+				return
+			}
+			if codec == "srt" {
+				data, err := os.ReadFile(path)
+				if err != nil { writeError(w, "file not found", http.StatusNotFound); return }
+				content := strings.ReplaceAll(string(data), ",", ".")
+				if !strings.HasPrefix(content, "WEBVTT") {
+					content = "WEBVTT\n\n" + content
+				}
+				w.Header().Set("Content-Type", "text/vtt")
+				w.Header().Set("Cache-Control", "public, max-age=86400")
+				w.Write([]byte(content))
+				return
+			}
+			// Other text formats (ass, ssa, sub, idx) — serve raw
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
 			http.ServeFile(w, req, path)
 			return
 		}
 
-		data, err := os.ReadFile(path)
+		// No file path — image subtitle?
+		if imageSubCodecs[codec] {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnsupportedMediaType)
+			json.NewEncoder(w).Encode(map[string]any{
+				"error":         "unsupported image-based subtitle format",
+				"subtitle_type": "image",
+			})
+			return
+		}
+
+		// Not a text extractable codec
+		if !textSubCodecs[codec] {
+			writeError(w, "unsupported subtitle format", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		// On-demand extraction from source media
+		var mediaPath string
+		err = r.db.QueryRow(`SELECT file_path FROM media_items WHERE id = ?`, mediaID).Scan(&mediaPath)
+		if err != nil { writeError(w, "source media not found", http.StatusNotFound); return }
+
+		ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "ffmpeg",
+			"-i", mediaPath,
+			"-map", fmt.Sprintf("0:%d", streamIndex),
+			"-f", "webvtt",
+			"-",
+		)
+
+		var stderrBuf bytes.Buffer
+		cmd.Stderr = &stderrBuf
+
+		stdout, err := cmd.StdoutPipe()
 		if err != nil {
-			writeError(w, "file not found", http.StatusNotFound)
+			log.Printf("Subtitle: stdout pipe error for id=%d: %v", id, err)
+			writeError(w, "extraction error", http.StatusInternalServerError)
 			return
 		}
 
-		if codec == "srt" {
-			content := strings.ReplaceAll(string(data), ",", ".")
-			if !strings.HasPrefix(content, "WEBVTT") {
-				content = "WEBVTT\n\n" + content
-			}
-			w.Header().Set("Content-Type", "text/vtt")
-			w.Header().Set("Cache-Control", "public, max-age=86400")
-			w.Write([]byte(content))
+		if err := cmd.Start(); err != nil {
+			log.Printf("Subtitle: start error for id=%d: %v", id, err)
+			writeError(w, "extraction error", http.StatusInternalServerError)
 			return
 		}
 
-		w.Header().Set("Content-Type", "text/plain")
-		w.Write(data)
+		w.Header().Set("Content-Type", "text/vtt")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+
+		_, copyErr := io.Copy(w, stdout)
+
+		if waitErr := cmd.Wait(); waitErr != nil {
+			log.Printf("Subtitle: ffmpeg failed for id=%d: %v, stderr: %s", id, waitErr, stderrBuf.String())
+		}
+
+		if copyErr != nil {
+			log.Printf("Subtitle: copy error for id=%d: %v", id, copyErr)
+		}
 	})))
 }
 

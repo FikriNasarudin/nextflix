@@ -45,6 +45,19 @@
 .topOverlay.visible { opacity: 1; pointer-events: auto; }
 .topRight { display: flex; align-items: center; gap: var(--space-sm); margin-left: auto; }
 .playerTitle { font-size: .95rem; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iconBtn {
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 6px;
+  opacity: .8;
+  transition: opacity .15s;
+  display: flex;
+  align-items: center;
+  font-family: inherit;
+}
+.iconBtn:hover { opacity: 1; }
 .settingsBtn { opacity: .8; transition: opacity .15s, transform .1s; background: none; border: none; cursor: pointer; color: var(--text); padding: 8px; }
 .settingsBtn:hover { opacity: 1; transform: scale(1.1); }
 .qualityBtn {
@@ -208,4 +221,50 @@
   .skipIntroBtn { bottom: 90px; left: var(--space-md); font-size: .8rem; padding: 8px 18px; }
   .topOverlay { padding: calc(12px + env(safe-area-inset-top,0px)) var(--space-md) var(--space-md); }
   .centerPlay { width: 56px; height: 56px; }
+}
+
+/* video.js dark theme overrides */
+.wrapper :global(.video-js) {
+  width: 100% !important;
+  height: 100% !important;
+}
+.wrapper :global(.video-js .vjs-tech) {
+  object-fit: contain;
+}
+.wrapper :global(.vjs-default-skin) {
+  color: #fff;
+}
+.wrapper :global(.vjs-default-skin .vjs-big-play-button) {
+  border: 2px solid rgba(255,255,255,.3);
+  background: rgba(0,0,0,.4);
+  backdrop-filter: blur(8px);
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  line-height: 60px;
+  font-size: 2rem;
+  left: 50%;
+  top: 50%;
+  margin-left: -32px;
+  margin-top: -32px;
+}
+.wrapper :global(.vjs-default-skin:hover .vjs-big-play-button) {
+  background: rgba(255,255,255,.15);
+  border-color: rgba(255,255,255,.5);
+}
+.wrapper :global(.vjs-control-bar) {
+  background: linear-gradient(0deg, rgba(0,0,0,.8) 0, transparent 100%);
+  padding-bottom: 8px;
+}
+.wrapper :global(.vjs-default-skin .vjs-play-progress) {
+  background: var(--primary, #e50914);
+}
+.wrapper :global(.vjs-default-skin .vjs-slider-bar) {
+  background: var(--primary, #e50914);
+}
+.wrapper :global(.vjs-default-skin .vjs-load-progress) {
+  background: rgba(255,255,255,.2);
+}
+.wrapper :global(.vjs-time-tooltip) {
+  display: none;
 }
