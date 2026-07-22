@@ -81,6 +81,11 @@ function MediaDetail({ mediaId }) {
     load()
   }
 
+  const triggerCancelJob = async (rendition) => {
+    await adminFetch('/encoder/cancel/' + mediaId + '/' + rendition, { method: 'POST' })
+    load()
+  }
+
   const triggerRefresh = async () => {
     setRefreshMsg('Refreshing...')
     try {
@@ -193,11 +198,16 @@ function MediaDetail({ mediaId }) {
           </div>
           {optim?.jobs?.map(j => (
             <div key={j.rendition} style={{ marginBottom: 6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.78rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.78rem' }}>
                 <span style={{ color: 'var(--text)' }}>{j.rendition}</span>
-                <span style={{ color: 'var(--muted)' }}>
+                <span style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
                   {j.status}{j.progress_percent > 0 && j.status === 'in_progress' ? ' &middot; ' + j.progress_percent + '%' : ''}
                   {j.status === 'completed' && j.output_size > 0 ? ' &middot; ' + sizeFmt(j.output_size) : ''}
+                  {j.status === 'in_progress' && (
+                    <button className="btn btn-sm" onClick={() => triggerCancelJob(j.rendition)} style={{ fontSize: '.7rem', padding: '1px 6px', background: 'transparent', color: '#e50914', border: '1px solid rgba(229,9,20,.4)', cursor: 'pointer' }} title="Cancel">
+                      &#10005;
+                    </button>
+                  )}
                 </span>
               </div>
               {j.status === 'in_progress' && (

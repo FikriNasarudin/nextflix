@@ -185,3 +185,61 @@ func (h *EncodingHandler) Queue(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, h.enc.Queue())
 }
+
+func (h *EncodingHandler) ReencodeStale(w http.ResponseWriter, r *http.Request) {
+	if h.enc == nil {
+		writeError(w, "encoder not available", http.StatusServiceUnavailable)
+		return
+	}
+	n, err := h.enc.ReencodeAllStale()
+	if err != nil {
+		writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"enqueued": n})
+}
+
+func (h *EncodingHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
+	if h.enc == nil {
+		writeError(w, "encoder not available", http.StatusServiceUnavailable)
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	rendition := r.PathValue("rendition")
+	if rendition == "" {
+		writeError(w, "missing rendition", http.StatusBadRequest)
+		return
+	}
+	if err := h.enc.CancelJob(id, rendition); err != nil {
+		writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "cancelled"})
+}
+
+func (h *EncodingHandler) ClearQueue(w http.ResponseWriter, r *http.Request) {
+	if h.enc == nil {
+		writeError(w, "encoder not available", http.StatusServiceUnavailable)
+		return
+	}
+	n, err := h.enc.ClearQueue()
+	if err != nil {
+		writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"cleared": n})
+}
+
+func (h *EncodingHandler) Info(w http.ResponseWriter, r *http.Request) {
+	var encoderVersion, lastInvalidated string
+	h.db.QueryRow(`SELECT COALESCE(value, '') FROM settings WHERE key = 'encoder_version'`).Scan(&encoderVersion)
+	h.db.QueryRow(`SELECT COALESCE(value, '') FROM settings WHERE key = 'last_invalidated_at'`).Scan(&lastInvalidated)
+	writeJSON(w, map[string]string{
+		"encoder_version":     encoderVersion,
+		"last_invalidated_at": lastInvalidated,
+	})
+}

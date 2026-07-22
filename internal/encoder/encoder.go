@@ -21,6 +21,8 @@ import (
 	"nextflix/internal/scanner"
 )
 
+const EncoderVersion = "2"
+
 type Encoder struct {
 	db     *sql.DB
 	cfg    config.EncoderConfig
@@ -28,10 +30,13 @@ type Encoder struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	running int32
+
+	activeJobs map[string]context.CancelFunc
+	jobMu      sync.Mutex
 }
 
 func New(db *sql.DB, cfg config.EncoderConfig, jobCh chan scanner.EncoderJob) *Encoder {
-	return &Encoder{db: db, cfg: cfg, jobCh: jobCh}
+	return &Encoder{db: db, cfg: cfg, jobCh: jobCh, activeJobs: make(map[string]context.CancelFunc)}
 }
 
 func (e *Encoder) Cfg() config.EncoderConfig {
@@ -59,6 +64,57 @@ func (e *Encoder) Recover() {
 	if n > 0 {
 		log.Printf("Encoder: recovered %d stale encode jobs (set to failed)", n)
 	}
+
+	var storedVer string
+	e.db.QueryRow(`SELECT value FROM settings WHERE key = 'encoder_version'`).Scan(&storedVer)
+	if storedVer != EncoderVersion {
+		log.Printf("Encoder: version mismatch (stored=%q current=%q), invalidating HLS items", storedVer, EncoderVersion)
+
+		e.db.Exec(`INSERT INTO settings (key, value) VALUES ('encoder_version', ?) ON CONFLICT(key) DO UPDATE SET value = ?`, EncoderVersion, EncoderVersion)
+		e.db.Exec(`UPDATE settings SET value = datetime('now') WHERE key = 'last_invalidated_at'`)
+		e.db.Exec(`UPDATE settings SET value = ? WHERE key = 'encoder_version'`, EncoderVersion)
+
+		res2, err := e.db.Exec(
+			`UPDATE media_items SET hls_stale = 1 WHERE hls_480p_path != '' AND hls_480p_path IS NOT NULL`,
+		)
+		if err == nil {
+			if cnt, _ := res2.RowsAffected(); cnt > 0 {
+				log.Printf("Encoder: marked %d media items as stale (version upgrade)", cnt)
+			}
+		}
+
+		staleIDs := e.staleMediaIDs()
+		if len(staleIDs) > 0 {
+			go func() {
+				for _, mid := range staleIDs {
+					var fp string
+					var dur int64
+					e.db.QueryRow(`SELECT file_path, COALESCE(duration_seconds, 0) FROM media_items WHERE id = ?`, mid).Scan(&fp, &dur)
+					if fp == "" {
+						continue
+					}
+					e.ensureJobRows(mid)
+					e.db.Exec(`UPDATE encode_jobs SET status = 'queued', progress_percent = 0, error = '', started_at = NULL, finished_at = NULL WHERE media_id = ?`, mid)
+					e.jobCh <- scanner.EncoderJob{MediaID: mid, FilePath: fp, DurationSeconds: dur}
+				}
+			}()
+		}
+	}
+}
+
+func (e *Encoder) staleMediaIDs() []int64 {
+	rows, err := e.db.Query(`SELECT id FROM media_items WHERE hls_stale = 1 AND hls_480p_path != '' AND hls_480p_path IS NOT NULL`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func (e *Encoder) worker() {
@@ -287,12 +343,31 @@ func (e *Encoder) encodeRendition(ctx context.Context, mediaID int64, inputPath,
 	segPattern := filepath.Join(outputDir, r.name+"_%05d.ts")
 	playlist := filepath.Join(outputDir, r.name+".m3u8")
 
+	jobKey := fmt.Sprintf("%d:%s", mediaID, r.name)
+
+	encCtx, encCancel := context.WithCancel(ctx)
+	e.jobMu.Lock()
+	e.activeJobs[jobKey] = encCancel
+	e.jobMu.Unlock()
+
+	defer func() {
+		e.jobMu.Lock()
+		delete(e.activeJobs, jobKey)
+		e.jobMu.Unlock()
+		encCancel()
+	}()
+
 	args := []string{
 		"-n", "19",
 		"ffmpeg",
 		"-i", inputPath,
+		"-map", "0:v:0",
+		"-map", "0:a:0?",
 		"-vf", r.res,
 		"-c:v", "libx264",
+		"-profile:v", "main",
+		"-level", "4.0",
+		"-pix_fmt", "yuv420p",
 		"-b:v", r.bitrate,
 		"-maxrate", r.maxrate,
 		"-bufsize", r.bufsize,
@@ -300,14 +375,21 @@ func (e *Encoder) encodeRendition(ctx context.Context, mediaID int64, inputPath,
 		"-threads", "1",
 		"-max_muxing_queue_size", "1024",
 		"-c:a", "aac",
+		"-b:a", "128k",
+		"-ar", "48000",
+		"-ac", "2",
+		"-af", "aresample=async=1",
 		"-f", "hls",
 		"-hls_time", fmt.Sprintf("%d", e.cfg.HLSSegmentDurationSec),
 		"-hls_list_size", "0",
+		"-hls_playlist_type", "vod",
+		"-hls_segment_type", "mpegts",
+		"-hls_flags", "independent_segments",
 		"-hls_segment_filename", segPattern,
 		playlist,
 	}
 
-	cmd := exec.CommandContext(ctx, "nice", args...)
+	cmd := exec.CommandContext(encCtx, "nice", args...)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		e.updateJob(mediaID, r.name, "failed", 0, fmt.Sprintf("stderr pipe: %v", err))
@@ -318,9 +400,9 @@ func (e *Encoder) encodeRendition(ctx context.Context, mediaID int64, inputPath,
 	log.Printf("Encoder: encoding media=%d → %s (%s)", mediaID, r.name, r.bitrate)
 
 	if err := cmd.Start(); err != nil {
-		if ctx.Err() != nil {
+		if encCtx.Err() != nil {
 			e.updateJob(mediaID, r.name, "failed", 0, "interrupted by shutdown")
-			return ctx.Err()
+			return encCtx.Err()
 		}
 		e.updateJob(mediaID, r.name, "failed", 0, fmt.Sprintf("start: %v", err))
 		return err
@@ -352,9 +434,9 @@ func (e *Encoder) encodeRendition(ctx context.Context, mediaID int64, inputPath,
 	}()
 
 	if err := cmd.Wait(); err != nil {
-		if ctx.Err() != nil {
+		if encCtx.Err() != nil {
 			e.updateJob(mediaID, r.name, "failed", lastPct, "interrupted by shutdown")
-			return ctx.Err()
+			return encCtx.Err()
 		}
 		e.updateJob(mediaID, r.name, "failed", lastPct, err.Error())
 		return err
@@ -431,6 +513,48 @@ func (e *Encoder) Queue() []QueueItem {
 		return []QueueItem{}
 	}
 	return items
+}
+
+func (e *Encoder) ReencodeAllStale() (int, error) {
+	ids := e.staleMediaIDs()
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	go func() {
+		for _, mid := range ids {
+			var fp string
+			var dur int64
+			e.db.QueryRow(`SELECT file_path, COALESCE(duration_seconds, 0) FROM media_items WHERE id = ?`, mid).Scan(&fp, &dur)
+			if fp == "" {
+				continue
+			}
+			e.ensureJobRows(mid)
+			e.db.Exec(`UPDATE encode_jobs SET status = 'queued', progress_percent = 0, error = '', started_at = NULL, finished_at = NULL WHERE media_id = ?`, mid)
+			e.jobCh <- scanner.EncoderJob{MediaID: mid, FilePath: fp, DurationSeconds: dur}
+		}
+	}()
+	return len(ids), nil
+}
+
+func (e *Encoder) CancelJob(mediaID int64, rendition string) error {
+	jobKey := fmt.Sprintf("%d:%s", mediaID, rendition)
+	e.jobMu.Lock()
+	cancel, ok := e.activeJobs[jobKey]
+	e.jobMu.Unlock()
+	if ok {
+		cancel()
+	}
+	e.db.Exec(`UPDATE encode_jobs SET status = 'failed', error = 'cancelled by admin', finished_at = CURRENT_TIMESTAMP, progress_percent = 0 WHERE media_id = ? AND rendition = ? AND status IN ('queued','in_progress')`, mediaID, rendition)
+	return nil
+}
+
+func (e *Encoder) ClearQueue() (int, error) {
+	res, err := e.db.Exec(`UPDATE encode_jobs SET status = 'failed', error = 'queue cleared by admin', finished_at = CURRENT_TIMESTAMP, progress_percent = 0 WHERE status = 'queued'`)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }
 
 func (e *Encoder) generateThumbnails(mediaID int64, inputPath, outputDir string) {

@@ -593,6 +593,10 @@ func (r *Router) mountAdmin() {
 	adminMux.Handle("GET /api/v1/admin/media/{id}/optimization", a(eh.Optimization))
 
 	adminMux.Handle("GET /api/v1/admin/encoder/queue", a(eh.Queue))
+	adminMux.Handle("POST /api/v1/admin/encoder/reencode-stale", a(eh.ReencodeStale))
+	adminMux.Handle("POST /api/v1/admin/encoder/cancel/{id}/{rendition}", a(eh.CancelJob))
+	adminMux.Handle("POST /api/v1/admin/encoder/clear-queue", a(eh.ClearQueue))
+	adminMux.Handle("GET /api/v1/admin/encoder/info", a(eh.Info))
 
 	adminMux.Handle("GET /api/v1/admin/settings", a(sh.List))
 	adminMux.Handle("PUT /api/v1/admin/settings", a(sh.Update))
