@@ -17,11 +17,27 @@ function findCurrentIndex(item, allMedia) {
 }
 
 function formatTime(seconds) {
-  if (!seconds || isNaN(seconds)) return '00:00'
+  if (!seconds || isNaN(seconds)) return '00:00:00'
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
   const s = Math.floor(seconds % 60)
   return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0')
+}
+
+function formatEndTime(remainingSeconds) {
+  if (!remainingSeconds || remainingSeconds < 0 || isNaN(remainingSeconds)) return ''
+  const ends = new Date(Date.now() + remainingSeconds * 1000)
+  return 'Ends at ' + ends.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+}
+
+function prefetchSegments(url, signal) {
+  for (let i = 0; i < 16; i++) {
+    fetch(url, {
+      headers: { Range: 'bytes=' + (i * 500000) + '-' + ((i + 1) * 500000 - 1) },
+      cache: 'force-cache',
+      signal,
+    }).catch(() => {})
+  }
 }
 
 export default function PlayerOverlay({ item: initialItem, allMedia, similarItems = [], onClose, onEpisodeSelect }) {
@@ -33,6 +49,8 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   const allMediaRef = useRef(allMedia)
   const onEpisodeSelectRef = useRef(onEpisodeSelect)
   const nextEpTimerRef = useRef(null)
+  const audioIndexRef = useRef(null)
+  const endTimeTimerRef = useRef(null)
 
   const [currentItem, setCurrentItem] = useState(initialItem)
   const [playing, setPlaying] = useState(true)
@@ -46,6 +64,9 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   const [subtitles, setSubtitles] = useState([])
   const [audioTracks, setAudioTracks] = useState([])
   const [switchingSource, setSwitchingSource] = useState(false)
+  const [audioIndex, setAudioIndex] = useState(null)
+  const [endTimeText, setEndTimeText] = useState('')
+  audioIndexRef.current = audioIndex
 
   useEffect(() => { allMediaRef.current = allMedia }, [allMedia])
   useEffect(() => { onEpisodeSelectRef.current = onEpisodeSelect }, [onEpisodeSelect])
@@ -74,6 +95,7 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     setShowMovieEnd(false)
     setNextEpCountdown(null)
     setShowSkipIntro(false)
+    setEndTimeText('')
     clearInterval(nextEpTimerRef.current)
 
     const slow = isSlowConnection()
@@ -86,7 +108,7 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       fluid: false,
       fill: true,
       html5: {
-        nativeAudioTracks: false,
+        nativeAudioTracks: true,
         nativeVideoTracks: false,
         vhs: {
           overrideNative: false,
@@ -101,6 +123,12 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       nativeControlsForTouch: true,
       controlBar: {
         volumePanel: { inline: false },
+        children: [
+          'playToggle', 'currentTimeDisplay', 'progressControl',
+          'durationDisplay', 'volumePanel', 'subsCapsButton',
+          'AspectRatioButton', 'pictureInPictureToggle',
+          'fullscreenToggle'
+        ],
       },
     }
 
@@ -111,13 +139,42 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     player.formatTime = ft
     player.formatTime_ = ft
 
+    player.fill = true
+
+    const AspectBtn = videojs.getComponent('Button')
+    class AspectRatioButton extends AspectBtn {
+      handleClick() {
+        const cur = currentItem
+        if (!cur) return
+        cycleAspectRatio()
+      }
+      buildCSSClass() { return 'vjs-icon-cog ' + super.buildCSSClass() }
+    }
+    videojs.registerComponent('AspectRatioButton', AspectRatioButton)
+
+    const OrigDurationDisplay = videojs.getComponent('DurationDisplay')
+    videojs.registerComponent('DurationDisplay', class extends OrigDurationDisplay {
+      updateContent() {
+        if (!this.player_ || !this.player_.duration_) return super.updateContent()
+        const dur = this.player_.duration()
+        const serverDur = currentItem.duration_seconds || 0
+        const v = (!isFinite(dur) || dur === 0) ? serverDur : Math.max(dur, serverDur)
+        if (v > 0) {
+          this.updateFormattedTime_(v)
+          return
+        }
+        super.updateContent()
+      }
+    })
+
     player.ready(function () {
       const tech = this.tech(true)
       let vhs = tech && tech.vhs
       if (!vhs && this.vhs) vhs = this.vhs
-      if (vhs && vhs.beforeRequest) {
-        const orig = vhs.beforeRequest
-        vhs.beforeRequest = function (options) {
+      const xhr = vhs && vhs.xhr
+      if (xhr) {
+        const orig = xhr.beforeRequest
+        xhr.beforeRequest = function (options) {
           const tk = getToken()
           if (tk && options.uri.indexOf('token=') === -1) {
             options.uri += (options.uri.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(tk)
@@ -134,6 +191,8 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
 
     let currentIdx = 0
     let generation = 0
+
+    const prefetchAbort = new AbortController()
 
     function trySource() {
       if (currentIdx >= modes.length) {
@@ -161,12 +220,20 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       }
       player.on('loadedmetadata', onMeta)
 
-      const src = mode === 'hls'
-        ? { src: '/api/v1/hls/' + item.id + '/index.m3u8' + tokenParam(), type: 'application/x-mpegURL' }
-        : { src: (mode === 'direct' ? '/api/v1/stream/' : '/api/v1/remux/') + item.id + tokenParam(), type: mode === 'direct' ? 'video/' + (item.container || 'mp4') : 'video/mp4' }
+      let srcUrl = mode === 'hls'
+        ? '/api/v1/hls/' + item.id + '/index.m3u8' + tokenParam()
+        : (mode === 'direct' ? '/api/v1/stream/' : '/api/v1/remux/') + item.id + tokenParam()
+      if (mode === 'remux' && audioIndexRef.current != null) {
+        srcUrl += (srcUrl.indexOf('?') >= 0 ? '&' : '?') + 'audio_index=' + audioIndexRef.current
+      }
+      const src = { src: srcUrl, type: mode === 'hls' ? 'application/x-mpegURL' : mode === 'direct' ? 'video/' + (item.container || 'mp4') : 'video/mp4' }
 
       player.src(src)
       player.load()
+
+      if (mode === 'direct' && (item.duration_seconds || 0) > 180) {
+        prefetchSegments(srcUrl, prefetchAbort.signal)
+      }
     }
 
     trySource()
@@ -214,12 +281,21 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
         })
       }
     }, 5000)
+
+    endTimeTimerRef.current = setInterval(() => {
+      const p = playerRef.current
+      if (!p) return
+      const dur = Math.max(p.duration() || 0, item.duration_seconds || 0)
+      const remaining = dur - p.currentTime()
+      setEndTimeText(formatEndTime(remaining))
+    }, 1000)
   }, [])
 
   useEffect(() => {
     initPlayer(currentItem)
     return () => {
       clearInterval(progressTimer.current)
+      clearInterval(endTimeTimerRef.current)
       clearTimeout(hideTimer.current)
       clearInterval(nextEpTimerRef.current)
       if (playerRef.current) {
@@ -230,13 +306,35 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   }, [currentItem])
 
   useEffect(() => {
+    if (audioIndex != null && playerRef.current) {
+      initPlayer(currentItem)
+    }
+  }, [audioIndex])
+
+  useEffect(() => {
     if (!currentItem?.id) return
+    let cancelled = false
     apiFetch('/media/' + currentItem.id + '/subtitles').then(subs => {
-      if (subs) setSubtitles(subs)
+      if (cancelled || !subs) return
+      setSubtitles(subs)
+      const p = playerRef.current
+      if (!p) return
+      const tk = getToken()
+      const t = tk ? '?token=' + encodeURIComponent(tk) : ''
+      subs.forEach(sub => {
+        const url = '/api/v1/subtitle/' + sub.id + '/file' + t
+        p.addRemoteTextTrack({
+          kind: 'subtitles',
+          src: url,
+          srclang: sub.language || 'und',
+          label: sub.language || 'Subtitles',
+        }, false)
+      })
     }).catch(() => {})
     apiFetch('/media/' + currentItem.id + '/audio').then(audios => {
-      if (audios) setAudioTracks(audios)
+      if (!cancelled && audios) setAudioTracks(audios)
     }).catch(() => {})
+    return () => { cancelled = true }
   }, [currentItem])
 
   useEffect(() => {
@@ -293,18 +391,27 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       clearTimeout(timeout)
       timeout = setTimeout(() => {
         const el = containerRef.current
-        if (!el) return
-        if (window.innerHeight < window.innerWidth && !document.fullscreenElement) {
+        const p = playerRef.current
+        if (!el || !p || p.paused()) return
+        const isLandscape = (window.screen?.orientation?.type || '').startsWith('landscape')
+          || window.innerWidth > window.innerHeight
+        if (isLandscape && !document.fullscreenElement) {
           el.requestFullscreen().catch(() => {})
-        } else if (window.innerHeight > window.innerWidth && document.fullscreenElement) {
+          window.screen?.orientation?.lock?.('landscape').catch(() => {})
+        } else if (!isLandscape && document.fullscreenElement) {
           document.exitFullscreen().catch(() => {})
+          window.screen?.orientation?.unlock?.()
         }
       }, 300)
     }
 
     window.addEventListener('orientationchange', handler)
+    window.addEventListener('resize', handler)
+    window.screen?.orientation?.addEventListener?.('change', handler)
     return () => {
       window.removeEventListener('orientationchange', handler)
+      window.removeEventListener('resize', handler)
+      window.screen?.orientation?.removeEventListener?.('change', handler)
       clearTimeout(timeout)
     }
   }, [])
@@ -317,6 +424,12 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     const next = eps[idx + 1]
     let countdown = 8
     setNextEpCountdown({ item: next, seconds: countdown })
+
+    if (next.hls_path) {
+      fetch('/api/v1/hls/' + next.id + '/index.m3u8' + tokenParam(), { cache: 'force-cache' }).catch(() => {})
+    } else {
+      fetch('/api/v1/stream/' + next.id + tokenParam(), { cache: 'force-cache' }).catch(() => {})
+    }
 
     clearInterval(nextEpTimerRef.current)
     nextEpTimerRef.current = setInterval(() => {
@@ -423,6 +536,17 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
             </button>
             <div className={styles.topRight}>
               <span className={styles.playerTitle}>{currentItem.title}</span>
+              {audioTracks.length > 1 && (
+                <select className={styles.audioSelect} value={audioIndex ?? ''} onChange={e => {
+                  const v = e.target.value
+                  setAudioIndex(v === '' ? null : parseInt(v, 10))
+                }}>
+                  <option value="">Default Audio</option>
+                  {audioTracks.map((t, i) => (
+                    <option key={i} value={t.index ?? i}>{t.language || 'Track ' + (i + 1)}</option>
+                  ))}
+                </select>
+              )}
               <button className={styles.iconBtn} onClick={cycleAspectRatio} title="Aspect Ratio" aria-label="Aspect Ratio">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-4-4h2v2h-2v-2zm-4 0h2v2h-2v-2zm-2 0h-2v2h2v-2z"/></svg>
               </button>
@@ -440,6 +564,7 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
               {currentItem.rating && <span>{currentItem.rating}</span>}
               {currentItem.release_date && <span>{(currentItem.release_date || '').substring(0, 4)}</span>}
               {currentItem.duration_seconds && <span>{Math.floor(currentItem.duration_seconds / 60)}m</span>}
+              {endTimeText && <span>{endTimeText}</span>}
             </div>
             {currentItem.overview && <p className={styles.infoDesc}>{currentItem.overview}</p>}
           </div>

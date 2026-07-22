@@ -223,20 +223,18 @@
   .centerPlay { width: 56px; height: 56px; }
 }
 
-/* video.js dark theme overrides */
+/* video.js dark theme overrides — app tokens: --accent #00fbfb */
 .wrapper :global(.video-js) {
   width: 100% !important;
   height: 100% !important;
+  font-family: 'Inter', system-ui, sans-serif;
 }
 .wrapper :global(.video-js .vjs-tech) {
   object-fit: contain;
 }
-.wrapper :global(.vjs-default-skin) {
-  color: #fff;
-}
-.wrapper :global(.vjs-default-skin .vjs-big-play-button) {
-  border: 2px solid rgba(255,255,255,.3);
-  background: rgba(0,0,0,.4);
+.wrapper :global(.video-js .vjs-big-play-button) {
+  border: 2px solid var(--accent, #00fbfb);
+  background: rgba(10,10,15,.5);
   backdrop-filter: blur(8px);
   width: 64px;
   height: 64px;
@@ -247,24 +245,70 @@
   top: 50%;
   margin-left: -32px;
   margin-top: -32px;
+  transition: all .2s ease;
 }
-.wrapper :global(.vjs-default-skin:hover .vjs-big-play-button) {
-  background: rgba(255,255,255,.15);
-  border-color: rgba(255,255,255,.5);
+.wrapper :global(.video-js:hover .vjs-big-play-button) {
+  background: rgba(10,10,15,.7);
+  border-color: var(--accent, #00fbfb);
+  transform: scale(1.05);
 }
 .wrapper :global(.vjs-control-bar) {
-  background: linear-gradient(0deg, rgba(0,0,0,.8) 0, transparent 100%);
+  background: linear-gradient(0deg, rgba(10,10,15,.92) 0, transparent 100%);
   padding-bottom: 8px;
 }
-.wrapper :global(.vjs-default-skin .vjs-play-progress) {
-  background: var(--primary, #e50914);
+.wrapper :global(.video-js .vjs-play-progress) {
+  background: var(--accent, #00fbfb) !important;
 }
-.wrapper :global(.vjs-default-skin .vjs-slider-bar) {
-  background: var(--primary, #e50914);
+.wrapper :global(.video-js .vjs-slider-bar) {
+  background: var(--accent, #00fbfb) !important;
 }
-.wrapper :global(.vjs-default-skin .vjs-load-progress) {
-  background: rgba(255,255,255,.2);
+.wrapper :global(.video-js .vjs-load-progress) {
+  background: rgba(255,255,255,.15) !important;
 }
-.wrapper :global(.vjs-time-tooltip) {
+.wrapper :global(.video-js .vjs-load-progress div) {
+  background: rgba(255,255,255,.08) !important;
+}
+.wrapper :global(.video-js .vjs-volume-level) {
+  background: var(--accent, #00fbfb) !important;
+}
+.wrapper :global(.video-js .vjs-time-tooltip) {
   display: none;
+}
+.wrapper :global(.video-js .vjs-menu-content) {
+  background: #2a292f !important;
+  border: 1px solid #4e4351 !important;
+  border-radius: 6px !important;
+}
+.wrapper :global(.video-js .vjs-menu-item) {
+  color: #e4e1e9 !important;
+  font-size: .85rem !important;
+}
+.wrapper :global(.video-js .vjs-menu-item.vjs-selected) {
+  background: var(--accent, #00fbfb) !important;
+  color: #0a0a0f !important;
+}
+.wrapper :global(.video-js .vjs-menu-item:hover) {
+  background: #4e4351 !important;
+}
+.wrapper :global(.video-js .vjs-button:hover) {
+  color: var(--accent, #00fbfb) !important;
+}
+.wrapper :global(.video-js .vjs-icon-cog) {
+  font-size: 1.2rem;
+}
+
+.audioSelect {
+  background: #2a292f;
+  color: #e4e1e9;
+  border: 1px solid #4e4351;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: .8rem;
+  font-family: inherit;
+  cursor: pointer;
+  max-width: 140px;
+}
+.audioSelect:focus {
+  outline: none;
+  border-color: var(--accent, #00fbfb);
 }

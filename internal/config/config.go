@@ -74,8 +74,8 @@ func Defaults() *Config {
 	return &Config{
 		Server: ServerConfig{
 			Port:            8080,
-			ReadTimeoutSec:  15,
-			WriteTimeoutSec: 30,
+			ReadTimeoutSec:  0,
+			WriteTimeoutSec: 0,
 		},
 		Database: DatabaseConfig{
 			Driver:        "sqlite3",

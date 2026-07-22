@@ -1,7 +1,7 @@
 server:
   port: 8080
   read_timeout_sec: 15
-  write_timeout_sec: 30
+  write_timeout_sec: 0
 
 database:
   driver: "sqlite3"

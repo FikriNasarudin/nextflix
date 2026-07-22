@@ -126,10 +126,21 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 	}
 	tryCopy := codec == "h264"
 
+	audioIdxStr := r.URL.Query().Get("audio_index")
+	audioMap := ""
+	if audioIdxStr != "" {
+		if ai, err := strconv.Atoi(audioIdxStr); err == nil && ai >= 0 {
+			audioMap = fmt.Sprintf("0:a:%d", ai)
+		}
+	}
+
 	var cmd *exec.Cmd
 	if tryCopy {
-		cmd = exec.CommandContext(r.Context(), "ffmpeg",
-			"-i", filePath,
+		args := []string{"-i", filePath}
+		if audioMap != "" {
+			args = append(args, "-map", "0:v:0", "-map", audioMap)
+		}
+		args = append(args,
 			"-c:v", "copy",
 			"-c:a", "aac",
 			"-sn",
@@ -138,10 +149,14 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 			"-f", "mp4",
 			"pipe:1",
 		)
+		cmd = exec.CommandContext(r.Context(), "ffmpeg", args...)
 	} else {
 		log.Printf("Remux: transcoding id=%d codec=%s to h264", id, codec)
-		cmd = exec.CommandContext(r.Context(), "ffmpeg",
-			"-i", filePath,
+		args := []string{"-i", filePath}
+		if audioMap != "" {
+			args = append(args, "-map", "0:v:0", "-map", audioMap)
+		}
+		args = append(args,
 			"-c:v", "libx264",
 			"-preset", "veryfast",
 			"-crf", "28",
@@ -152,6 +167,7 @@ func (h *StreamHandler) Remux(w http.ResponseWriter, r *http.Request) {
 			"-f", "mp4",
 			"pipe:1",
 		)
+		cmd = exec.CommandContext(r.Context(), "ffmpeg", args...)
 	}
 
 	stdout, err := cmd.StdoutPipe()
@@ -266,9 +282,43 @@ func (h *StreamHandler) HLSFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		ah := r.Header.Get("Authorization")
+		if strings.HasPrefix(ah, "Bearer ") {
+			token = strings.TrimPrefix(ah, "Bearer ")
+		}
+	}
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	if token != "" {
+		param := "?token=" + token
+		lines := strings.Split(string(data), "\n")
+		for i, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if strings.Contains(line, "://") {
+				continue
+			}
+			if strings.Contains(line, "?") {
+				lines[i] = line + "&token=" + token
+			} else {
+				lines[i] = line + param
+			}
+		}
+		data = []byte(strings.Join(lines, "\n"))
+	}
+
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache")
-	http.ServeFile(w, r, absPath)
+	w.Write(data)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
