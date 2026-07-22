@@ -96,7 +96,19 @@
 @media (max-width: 768px) {
   .backdrop { height: 240px; }
   .layout { flex-direction: column; align-items: center; }
-  .posterCol { width: 180px; }
-  .title { font-size: 1.6rem; }
+  .posterCol { width: 140px; }
+  .title { font-size: 1.3rem; }
+  .meta { font-size: .8rem; }
+  .overview { font-size: .85rem; }
   .body { padding: 0 var(--space-md); }
+  .playBtn { font-size: .95rem; padding: 10px 24px; }
+}
+@media (max-width: 480px) {
+  .posterCol { width: 110px; }
+  .title { font-size: 1.1rem; }
+  .overview { font-size: .8rem; }
+  .meta { font-size: .75rem; }
+  .backBtn, .browseBtn { font-size: .8rem; padding: 6px 14px; top: 12px; }
+  .backBtn { left: 12px; }
+  .browseBtn { right: 12px; }
 }

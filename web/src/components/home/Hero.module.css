@@ -140,9 +140,19 @@
 }
 
 @media (max-width: 768px) {
-  .hero { height: 60vh; min-height: 350px; }
-  .content { padding: 0 var(--space-md) 80px; }
-  .title { font-size: 1.8rem; }
+  .hero { height: 55vh; min-height: 350px; }
+  .content { padding: 0 var(--space-md) 60px; }
+  .title { font-size: 1.5rem; }
+  .meta { font-size: .8rem; }
   .badges { flex-wrap: wrap; }
+  .badgeFeatured, .badgeGenre { font-size: .65rem; padding: 3px 10px; }
   .dots { right: var(--space-md); bottom: 50px; }
+}
+@media (max-width: 480px) {
+  .hero { height: 50vh; min-height: 280px; }
+  .title { font-size: 1.3rem; }
+  .overview { display: none; }
+  .buttons { gap: 8px; }
+  .btnPlay, .btnInfo { font-size: .9rem; padding: 8px 20px; }
+  .content { padding: 0 var(--space-md) 50px; }
 }

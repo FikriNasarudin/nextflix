@@ -122,7 +122,11 @@
 }
 
 @media (max-width: 768px) {
-  .nav { padding: 0 var(--space-md); }
+  .nav { padding: 0 var(--space-md); height: 52px; }
   .navLinks { display: none; }
   .navSearch { display: none; }
+  .logo { font-size: 1.25rem; }
+}
+@media (max-width: 480px) {
+  .nav { padding-top: env(safe-area-inset-top, 0px); height: calc(48px + env(safe-area-inset-top, 0px)); }
 }

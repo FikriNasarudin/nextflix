@@ -204,6 +204,9 @@
     gap: 12px;
   }
 }
+@media (max-width: 480px) {
+  .grid { gap: 8px; }
+}
 
 .seasonSelect {
   padding: 6px var(--space-sm);
@@ -280,14 +283,20 @@
   }
 
   .posterCol {
-    width: 160px;
+    width: 120px;
   }
 
   .title {
-    font-size: 1.5rem;
+    font-size: 1.2rem;
   }
 
   .overview {
-    font-size: 0.95rem;
+    font-size: 0.85rem;
   }
+}
+@media (max-width: 480px) {
+  .posterCol { width: 100px; }
+  .title { font-size: 1rem; }
+  .overview { font-size: 0.8rem; }
+  .meta { font-size: 0.8rem; }
 }
