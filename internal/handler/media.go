@@ -53,7 +53,6 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN show_images si ON si.show_name = mi.show_name AND si.image_type = 'poster' AND si.season_number = 0
 		LEFT JOIN media_video_tracks v ON v.media_id = mi.id AND v.is_default = 1
 		WHERE 1=1
-		GROUP BY mi.id
 	`
 
 	hasLibraryRestriction := false
@@ -77,6 +76,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		args = append(args, mediaType)
 	}
 
+	query += ` GROUP BY mi.id`
 	query += ` ORDER BY mi.created_at DESC`
 	args = append(args, limit, offset)
 	query += ` LIMIT ? OFFSET ?`
