@@ -213,14 +213,21 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       inactivityTimeout: 3000,
       liveui: false,
       nativeControlsForTouch: true,
-      controlBar: false,
     }
 
-    const player = videojs(el, videoJsOptions)
+    let player
+    try {
+      player = videojs(el, videoJsOptions)
+    } catch (e) {
+      setError('Player initialization failed: ' + e.message)
+      setSwitchingSource(false)
+      return
+    }
     playerRef.current = player
     player.fill = true
 
     player.ready(function () {
+      this.controls(false)
       const tech = this.tech(true)
       let vhs = tech && tech.vhs
       if (!vhs && this.vhs) vhs = this.vhs
