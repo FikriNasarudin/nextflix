@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"nextflix/internal/config"
@@ -19,6 +20,8 @@ type Session struct {
 	Cmd        *FFmpegCmd
 	lastTouch  time.Time
 	mu         sync.Mutex
+	killed     int32
+	generation int32
 }
 
 type SessionManager struct {
@@ -43,7 +46,7 @@ func (sm *SessionManager) GetOrCreate(mediaID int64, filePath string, rendition 
 	if s, ok := sm.sessions[mediaID]; ok {
 		s.Touch()
 		if s.Rendition != rendition {
-			if err := s.switchRendition(mediaID, filePath, rendition, sm.encoder, sm.cfg.SegmentDurationSec); err != nil {
+			if err := s.switchRendition(sm, mediaID, filePath, rendition, sm.encoder, sm.cfg.SegmentDurationSec); err != nil {
 				return nil, fmt.Errorf("switch rendition: %w", err)
 			}
 		}
@@ -59,10 +62,11 @@ func (sm *SessionManager) GetOrCreate(mediaID int64, filePath string, rendition 
 	}
 
 	s := &Session{
-		MediaID:   mediaID,
-		FilePath:  filePath,
-		Rendition: rendition,
-		lastTouch: time.Now(),
+		MediaID:    mediaID,
+		FilePath:   filePath,
+		Rendition:  rendition,
+		lastTouch:  time.Now(),
+		generation: 1,
 	}
 
 	segDir := filepath.Join(sm.cfg.ShmDir, fmt.Sprintf("%d", mediaID), rendition)
@@ -82,10 +86,25 @@ func (sm *SessionManager) GetOrCreate(mediaID int64, filePath string, rendition 
 
 	sm.sessions[mediaID] = s
 	log.Printf("Transcoder: started %s for media=%d (pid=%d)", rendition, mediaID, cmd.Cmd.Process.Pid)
+
+	gen := atomic.LoadInt32(&s.generation)
+	go func(cmd *FFmpegCmd, gen int32) {
+		cmd.Wait()
+		sm.mu.Lock()
+		if found, ok := sm.sessions[mediaID]; ok &&
+			atomic.LoadInt32(&found.generation) == gen &&
+			atomic.LoadInt32(&found.killed) == 0 {
+			delete(sm.sessions, mediaID)
+			os.RemoveAll(filepath.Join(sm.cfg.ShmDir, fmt.Sprintf("%d", mediaID)))
+			log.Printf("Transcoder: cleaned up dead session media=%d", mediaID)
+		}
+		sm.mu.Unlock()
+	}(cmd, gen)
+
 	return s, nil
 }
 
-func (s *Session) switchRendition(mediaID int64, filePath string, newRendition string, encoder string, segDur int) error {
+func (s *Session) switchRendition(sm *SessionManager, mediaID int64, filePath string, newRendition string, encoder string, segDur int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -115,6 +134,23 @@ func (s *Session) switchRendition(mediaID int64, filePath string, newRendition s
 		return fmt.Errorf("start ffmpeg: %w", err)
 	}
 
+	atomic.AddInt32(&s.generation, 1)
+	atomic.StoreInt32(&s.killed, 0)
+
+	gen := atomic.LoadInt32(&s.generation)
+	go func(cmd *FFmpegCmd, gen int32) {
+		cmd.Wait()
+		sm.mu.Lock()
+		if found, ok := sm.sessions[mediaID]; ok &&
+			atomic.LoadInt32(&found.generation) == gen &&
+			atomic.LoadInt32(&found.killed) == 0 {
+			delete(sm.sessions, mediaID)
+			os.RemoveAll(filepath.Join(sm.cfg.ShmDir, fmt.Sprintf("%d", mediaID)))
+			log.Printf("Transcoder: cleaned up dead session media=%d", mediaID)
+		}
+		sm.mu.Unlock()
+	}(cmd, gen)
+
 	log.Printf("Transcoder: switched to %s for media=%d (pid=%d)", newRendition, mediaID, cmd.Cmd.Process.Pid)
 	return nil
 }
@@ -134,6 +170,7 @@ func (s *Session) IdleDuration() time.Duration {
 func (s *Session) Kill() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	atomic.StoreInt32(&s.killed, 1)
 	if s.Cmd != nil && s.Cmd.Cmd != nil && s.Cmd.Cmd.Process != nil {
 		s.Cmd.Cmd.Process.Kill()
 		s.Cmd.Cmd.Wait()

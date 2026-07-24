@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"strings"
 )
 
 type FFmpegCmd struct {
@@ -14,27 +13,22 @@ type FFmpegCmd struct {
 }
 
 func DetectEncoder() string {
-	candidates := []struct {
-		name string
-		args []string
-	}{
-		{"h264_nvenc", []string{"-encoders"}},
-		{"h264_qsv", []string{"-encoders"}},
-	}
+	candidates := []string{"h264_nvenc", "h264_qsv", "libx264"}
 
-	for _, c := range candidates {
-		cmd := exec.Command("ffmpeg", c.args...)
-		out, err := cmd.Output()
-		if err != nil {
-			continue
-		}
-		if strings.Contains(string(out), c.name) {
-			log.Printf("Transcoder: detected hardware encoder %s", c.name)
-			return c.name
+	for _, enc := range candidates {
+		cmd := exec.Command("ffmpeg",
+			"-hide_banner", "-f", "lavfi",
+			"-i", "color=black:s=320x240:d=0.1",
+			"-c:v", enc, "-frames:v", "1",
+			"-f", "null", "-", "-y",
+		)
+		if err := cmd.Run(); err == nil {
+			log.Printf("Transcoder: detected encoder %s", enc)
+			return enc
 		}
 	}
 
-	log.Printf("Transcoder: no hardware encoder found, using libx264")
+	log.Printf("Transcoder: libx264 fallback selected (no test encoder passed)")
 	return "libx264"
 }
 

@@ -86,7 +86,7 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     clearTimeout(hideTimer.current)
     hideTimer.current = setTimeout(() => {
       const v = videoRef.current
-      if (v && v.paused()) return
+      if (v && v.paused) return
       setShowOverlays(false)
     }, 3000)
   }, [])

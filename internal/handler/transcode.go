@@ -51,8 +51,8 @@ func (h *TranscodeHandler) Master(w http.ResponseWriter, r *http.Request) {
 	}
 
 	master := "#EXTM3U\n"
-	master += fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%s,RESOLUTION=%s\n480p.m3u8\n", bw480p, res480p)
-	master += fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%s,RESOLUTION=%s\n1080p.m3u8\n", bw1080p, res1080p)
+	master += fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%s,RESOLUTION=%s\n480p/index.m3u8\n", bw480p, res480p)
+	master += fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%s,RESOLUTION=%s\n1080p/index.m3u8\n", bw1080p, res1080p)
 
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache")
