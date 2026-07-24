@@ -66,59 +66,6 @@ func (h *TranscodeHandler) Master(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
-func (h *TranscodeHandler) Rendition(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, "invalid id", http.StatusBadRequest)
-		return
-	}
-
-	rendition := r.PathValue("rendition")
-	if rendition != "480p" && rendition != "1080p" {
-		writeError(w, "invalid rendition", http.StatusBadRequest)
-		return
-	}
-
-	playlistPath := filepath.Join(h.shmDir, fmt.Sprintf("%d", id), rendition, "index.m3u8")
-	data, err := os.ReadFile(playlistPath)
-	if err != nil {
-		writeError(w, "playlist not ready", http.StatusNotFound)
-		return
-	}
-
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		ah := r.Header.Get("Authorization")
-		if strings.HasPrefix(ah, "Bearer ") {
-			token = strings.TrimPrefix(ah, "Bearer ")
-		}
-	}
-
-	if token != "" {
-		param := "?token=" + token
-		lines := strings.Split(string(data), "\n")
-		for i, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			if strings.Contains(line, "://") {
-				continue
-			}
-			if strings.Contains(line, "?") {
-				lines[i] = line + "&token=" + token
-			} else {
-				lines[i] = line + param
-			}
-		}
-		data = []byte(strings.Join(lines, "\n"))
-	}
-
-	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Write(data)
-}
-
 func (h *TranscodeHandler) Segment(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -148,8 +95,6 @@ func (h *TranscodeHandler) Segment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-
 	ext := strings.ToLower(filepath.Ext(absPath))
 	if ext == ".ts" {
 		w.Header().Set("Content-Type", "video/mp2t")
@@ -159,5 +104,46 @@ func (h *TranscodeHandler) Segment(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/vtt")
 	}
 
+	if ext == ".m3u8" {
+		data, err := os.ReadFile(absPath)
+		if err != nil {
+			writeError(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			ah := r.Header.Get("Authorization")
+			if strings.HasPrefix(ah, "Bearer ") {
+				token = strings.TrimPrefix(ah, "Bearer ")
+			}
+		}
+
+		if token != "" {
+			param := "?token=" + token
+			lines := strings.Split(string(data), "\n")
+			for i, line := range lines {
+				line = strings.TrimSpace(line)
+				if line == "" || strings.HasPrefix(line, "#") {
+					continue
+				}
+				if strings.Contains(line, "://") {
+					continue
+				}
+				if strings.Contains(line, "?") {
+					lines[i] = line + "&token=" + token
+				} else {
+					lines[i] = line + param
+				}
+			}
+			data = []byte(strings.Join(lines, "\n"))
+		}
+
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Write(data)
+		return
+	}
+
+	w.Header().Set("Cache-Control", "public, max-age=86400")
 	http.ServeFile(w, r, absPath)
 }
