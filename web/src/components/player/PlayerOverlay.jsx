@@ -124,76 +124,6 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     } catch (e) {}
   }, [currentItem])
 
-  const seekTo = useCallback((targetPos) => {
-    const v = videoRef.current
-    if (!v) return
-    const dur = currentItem.duration_seconds || 0
-    if (dur <= 0) return
-    const displayOffset = displayOffsetRef.current
-    const currentActual = displayOffset + v.currentTime
-    if (Math.abs(targetPos - currentActual) < 20) {
-      const seg = targetPos - displayOffset
-      if (seg >= 0 && seg < dur) v.currentTime = seg
-    } else if (targetPos >= 0 && targetPos < dur) {
-      setSwitchingSource(true)
-      destroyHls()
-      seekPosRef.current = targetPos
-      initPlayer(currentItem, targetPos)
-    }
-  }, [currentItem, destroyHls])
-
-  const onProgressMouseDown = useCallback((e) => {
-    e.preventDefault()
-    isDragging.current = true
-    const onMove = (ev) => {
-      const el = progressRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      const ratio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
-      if (playedRef.current) playedRef.current.style.width = ratio * 100 + '%'
-    }
-    const onUp = (ev) => {
-      isDragging.current = false
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-      const el = progressRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      const ratio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
-      const dur = currentItem.duration_seconds || 0
-      seekTo(ratio * dur)
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  }, [currentItem, seekTo])
-
-  const onProgressTouchStart = useCallback((e) => {
-    const touch = e.touches[0]
-    if (!touch) return
-    isDragging.current = true
-    const onMove = (ev) => {
-      ev.preventDefault()
-      const el = progressRef.current
-      if (!el || !ev.touches[0]) return
-      const rect = el.getBoundingClientRect()
-      const ratio = Math.max(0, Math.min(1, (ev.touches[0].clientX - rect.left) / rect.width))
-      if (playedRef.current) playedRef.current.style.width = ratio * 100 + '%'
-    }
-    const onEnd = (ev) => {
-      isDragging.current = false
-      document.removeEventListener('touchmove', onMove)
-      document.removeEventListener('touchend', onEnd)
-      const el = progressRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      const ratio = Math.max(0, Math.min(1, (ev.changedTouches[0]?.clientX - rect.left) / rect.width))
-      const dur = currentItem.duration_seconds || 0
-      seekTo(ratio * dur)
-    }
-    document.addEventListener('touchmove', onMove, { passive: false })
-    document.addEventListener('touchend', onEnd)
-  }, [currentItem, seekTo])
-
   const destroyHls = useCallback(() => {
     if (hlsRef.current) {
       hlsRef.current.destroy()
@@ -400,6 +330,76 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
 
     trySource()
   }, [])
+
+  const seekTo = useCallback((targetPos) => {
+    const v = videoRef.current
+    if (!v) return
+    const dur = currentItem.duration_seconds || 0
+    if (dur <= 0) return
+    const displayOffset = displayOffsetRef.current
+    const currentActual = displayOffset + v.currentTime
+    if (Math.abs(targetPos - currentActual) < 20) {
+      const seg = targetPos - displayOffset
+      if (seg >= 0 && seg < dur) v.currentTime = seg
+    } else if (targetPos >= 0 && targetPos < dur) {
+      setSwitchingSource(true)
+      destroyHls()
+      seekPosRef.current = targetPos
+      initPlayer(currentItem, targetPos)
+    }
+  }, [currentItem, destroyHls, initPlayer])
+
+  const onProgressMouseDown = useCallback((e) => {
+    e.preventDefault()
+    isDragging.current = true
+    const onMove = (ev) => {
+      const el = progressRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const ratio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
+      if (playedRef.current) playedRef.current.style.width = ratio * 100 + '%'
+    }
+    const onUp = (ev) => {
+      isDragging.current = false
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      const el = progressRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const ratio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
+      const dur = currentItem.duration_seconds || 0
+      seekTo(ratio * dur)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [currentItem, seekTo])
+
+  const onProgressTouchStart = useCallback((e) => {
+    const touch = e.touches[0]
+    if (!touch) return
+    isDragging.current = true
+    const onMove = (ev) => {
+      ev.preventDefault()
+      const el = progressRef.current
+      if (!el || !ev.touches[0]) return
+      const rect = el.getBoundingClientRect()
+      const ratio = Math.max(0, Math.min(1, (ev.touches[0].clientX - rect.left) / rect.width))
+      if (playedRef.current) playedRef.current.style.width = ratio * 100 + '%'
+    }
+    const onEnd = (ev) => {
+      isDragging.current = false
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend', onEnd)
+      const el = progressRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const ratio = Math.max(0, Math.min(1, (ev.changedTouches[0]?.clientX - rect.left) / rect.width))
+      const dur = currentItem.duration_seconds || 0
+      seekTo(ratio * dur)
+    }
+    document.addEventListener('touchmove', onMove, { passive: false })
+    document.addEventListener('touchend', onEnd)
+  }, [currentItem, seekTo])
 
   useLayoutEffect(() => {
     const el = videoRef.current
