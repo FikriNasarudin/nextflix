@@ -235,7 +235,7 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       if (gen > 1) setSwitchingSource(true)
 
       if (mode === 'transcode') {
-        const masterUrl = '/api/v1/transcode/' + item.id + '/master.m3u8?pos=' + startPos + tokenParam()
+        const masterUrl = '/api/v1/transcode/' + item.id + '/master.m3u8?pos=' + startPos + '&token=' + encodeURIComponent(getToken() || '')
         if (Hls.isSupported()) {
           const hls = new Hls({
             maxBufferLength: 12,
