@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"nextflix/internal/transcoder"
 )
@@ -19,8 +20,8 @@ type TranscodeHandler struct {
 	shmDir string
 }
 
-func NewTranscodeHandler(db *sql.DB, sm *transcoder.SessionManager) *TranscodeHandler {
-	return &TranscodeHandler{db: db, sm: sm, shmDir: "/dev/shm/homestream"}
+func NewTranscodeHandler(db *sql.DB, sm *transcoder.SessionManager, shmDir string) *TranscodeHandler {
+	return &TranscodeHandler{db: db, sm: sm, shmDir: shmDir}
 }
 
 func (h *TranscodeHandler) Master(w http.ResponseWriter, r *http.Request) {
@@ -79,34 +80,33 @@ func (h *TranscodeHandler) Segment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	absBase := h.shmDir
-	filePath := filepath.Join(absBase, fmt.Sprintf("%d", id), rest)
-	absPath, err := filepath.EvalSymlinks(filePath)
-	if err != nil {
-		absPath, err = filepath.Abs(filePath)
-		if err != nil {
-			writeError(w, "invalid path", http.StatusBadRequest)
-			return
-		}
-	}
+	ext := strings.ToLower(filepath.Ext(rest))
 
-	if !strings.HasPrefix(absPath, absBase+string(filepath.Separator)) {
-		writeError(w, "invalid path", http.StatusBadRequest)
-		return
-	}
-
-	ext := strings.ToLower(filepath.Ext(absPath))
-	if ext == ".ts" {
-		w.Header().Set("Content-Type", "video/mp2t")
-	} else if ext == ".m3u8" {
-		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	} else if ext == ".vtt" {
-		w.Header().Set("Content-Type", "text/vtt")
-	}
-
+	// For .m3u8 requests, ensure a session is running and wait for the file
 	if ext == ".m3u8" {
-		data, err := os.ReadFile(absPath)
+		rendition, found := strings.CutSuffix(rest, "/index.m3u8")
+		if found && (rendition == "480p" || rendition == "1080p") {
+			var filePath string
+			h.db.QueryRow(`SELECT file_path FROM media_items WHERE id = ?`, id).Scan(&filePath)
+			if filePath != "" {
+				h.sm.GetOrCreate(id, filePath, rendition)
+			}
+		}
+
+		absBase := h.shmDir
+		targetPath := filepath.Join(absBase, fmt.Sprintf("%d", id), rest)
+
+		// Poll for file up to ~5s (cover first segment encode time)
+		for i := 0; i < 50; i++ {
+			if _, err := os.Stat(targetPath); err == nil {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		data, err := os.ReadFile(targetPath)
 		if err != nil {
+			log.Printf("Transcode: segment 404 media=%d rest=%s: %v", id, rest, err)
 			writeError(w, "not found", http.StatusNotFound)
 			return
 		}
@@ -139,9 +139,32 @@ func (h *TranscodeHandler) Segment(w http.ResponseWriter, r *http.Request) {
 			data = []byte(strings.Join(lines, "\n"))
 		}
 
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Write(data)
 		return
+	}
+
+	absBase := h.shmDir
+	filePath := filepath.Join(absBase, fmt.Sprintf("%d", id), rest)
+	absPath, err := filepath.EvalSymlinks(filePath)
+	if err != nil {
+		absPath, err = filepath.Abs(filePath)
+		if err != nil {
+			writeError(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+	}
+
+	if !strings.HasPrefix(absPath, absBase+string(filepath.Separator)) {
+		writeError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if ext == ".ts" {
+		w.Header().Set("Content-Type", "video/mp2t")
+	} else if ext == ".vtt" {
+		w.Header().Set("Content-Type", "text/vtt")
 	}
 
 	w.Header().Set("Cache-Control", "public, max-age=86400")

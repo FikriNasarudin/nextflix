@@ -146,7 +146,7 @@ func (r *Router) mountHealth() {
 
 func (r *Router) mountStreaming() {
 	sh := NewStreamHandler(r.db)
-	th := NewTranscodeHandler(r.db, r.sm)
+	th := NewTranscodeHandler(r.db, r.sm, r.sm.ShmDir())
 	r.mux.Handle("GET /api/v1/stream/{id}", r.authMid(http.HandlerFunc(sh.Serve)))
 	r.mux.Handle("GET /api/v1/transcode/{id}/master.m3u8", r.authMid(http.HandlerFunc(th.Master)))
 	r.mux.Handle("GET /api/v1/transcode/{id}/{rest...}", r.authMid(http.HandlerFunc(th.Segment)))

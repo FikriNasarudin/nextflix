@@ -177,6 +177,10 @@ func (s *Session) Kill() {
 	}
 }
 
+func (sm *SessionManager) ShmDir() string {
+	return sm.cfg.ShmDir
+}
+
 func (sm *SessionManager) KillAll() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
