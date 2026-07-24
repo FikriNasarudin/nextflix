@@ -119,7 +119,7 @@ func spawnFFmpeg(inputPath, segDir, rendition, encoder string, segDur int) (*FFm
 		}
 	}
 
-	cmd := exec.Command("nice", append([]string{"-n", "19", "ffmpeg"}, args...)...)
+	cmd := exec.Command("ffmpeg", args...)
 	cmd.Stderr = os.Stderr
 
 	return &FFmpegCmd{Cmd: cmd, SegDir: segDir}, nil
