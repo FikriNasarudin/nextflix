@@ -33,10 +33,29 @@ func DetectEncoder() string {
 	return "libx264"
 }
 
-func spawnFFmpeg(inputPath, segDir, rendition, kind, encoder string, segDur int, startPos int) (*FFmpegCmd, error) {
+type rungConfig struct {
+	Height  int
+	Bitrate string
+	Maxrate string
+	Bufsize string
+}
+
+var renditionRungs = map[string]rungConfig{
+	"360p":  {Height: 360, Bitrate: "500k", Maxrate: "700k", Bufsize: "1200k"},
+	"480p":  {Height: 480, Bitrate: "800k", Maxrate: "1000k", Bufsize: "1600k"},
+	"540p":  {Height: 540, Bitrate: "1200k", Maxrate: "1600k", Bufsize: "2500k"},
+	"720p":  {Height: 720, Bitrate: "2500k", Maxrate: "3200k", Bufsize: "5000k"},
+	"1080p": {Height: 1080, Bitrate: "4000k", Maxrate: "5000k", Bufsize: "8000k"},
+}
+
+func spawnFFmpeg(inputPath, segDir, rendition, kind, encoder string, segDur int, startPos int, hlsListSize int, isHdr bool) (*FFmpegCmd, error) {
 	hlsTime := fmt.Sprintf("%d", segDur)
 	if segDur <= 0 {
 		hlsTime = "4"
+	}
+	listSize := hlsListSize
+	if listSize <= 0 {
+		listSize = 30
 	}
 
 	segPattern := segDir + "/seg_%05d.ts"
@@ -59,54 +78,70 @@ func spawnFFmpeg(inputPath, segDir, rendition, kind, encoder string, segDur int,
 		)
 
 	default:
-		var scale, bitrate, maxrate, bufsize string
-		switch rendition {
-		case "480p":
-			scale = "scale=-2:480"
-			bitrate = "800k"
-			maxrate = "1000k"
-			bufsize = "1600k"
-		case "1080p":
-			scale = "scale=-2:1080"
-			bitrate = "4000k"
-			maxrate = "5000k"
-			bufsize = "8000k"
-		default:
-			scale = "scale=-2:480"
-			bitrate = "800k"
-			maxrate = "1000k"
-			bufsize = "1600k"
+		rung, ok := renditionRungs[rendition]
+		if !ok {
+			rung = renditionRungs["480p"]
+		}
+		scale := fmt.Sprintf("scale=-2:%d", rung.Height)
+
+		vf := scale
+		if isHdr {
+			vf = fmt.Sprintf("tonemap=hable:desat=0,%s", scale)
 		}
 
-		args = append(args, "-vf", scale)
+		args = append(args, "-vf", vf)
 
 		switch encoder {
 		case "h264_nvenc":
 			args = append(args,
 				"-c:v", "h264_nvenc",
 				"-preset", "p1",
-				"-b:v", bitrate,
-				"-maxrate", maxrate,
-				"-bufsize", bufsize,
+				"-b:v", rung.Bitrate,
+				"-maxrate", rung.Maxrate,
+				"-bufsize", rung.Bufsize,
 			)
+			if isHdr {
+				args = append(args,
+					"-color_range", "tv",
+					"-colorspace", "bt709",
+					"-color_trc", "bt709",
+					"-color_primaries", "bt709",
+				)
+			}
 		case "h264_qsv":
 			args = append(args,
 				"-c:v", "h264_qsv",
 				"-preset", "veryfast",
 				"-global_quality", "22",
-				"-b:v", bitrate,
-				"-maxrate", maxrate,
-				"-bufsize", bufsize,
+				"-b:v", rung.Bitrate,
+				"-maxrate", rung.Maxrate,
+				"-bufsize", rung.Bufsize,
 			)
+			if isHdr {
+				args = append(args,
+					"-color_range", "tv",
+					"-colorspace", "bt709",
+					"-color_trc", "bt709",
+					"-color_primaries", "bt709",
+				)
+			}
 		default:
 			args = append(args,
 				"-c:v", "libx264",
 				"-preset", "ultrafast",
 				"-crf", "28",
-				"-b:v", bitrate,
-				"-maxrate", maxrate,
-				"-bufsize", bufsize,
+				"-b:v", rung.Bitrate,
+				"-maxrate", rung.Maxrate,
+				"-bufsize", rung.Bufsize,
 			)
+			if isHdr {
+				args = append(args,
+					"-color_range", "tv",
+					"-colorspace", "bt709",
+					"-color_trc", "bt709",
+					"-color_primaries", "bt709",
+				)
+			}
 		}
 
 		args = append(args,
@@ -117,7 +152,7 @@ func spawnFFmpeg(inputPath, segDir, rendition, kind, encoder string, segDur int,
 	hlsArgs := []string{
 		"-f", "hls",
 		"-hls_time", hlsTime,
-		"-hls_list_size", "5",
+		"-hls_list_size", fmt.Sprintf("%d", listSize),
 		"-hls_flags", "delete_segments+omit_endlist",
 	}
 

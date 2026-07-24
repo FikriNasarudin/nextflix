@@ -50,6 +50,10 @@ func segDirFor(shmDir string, mediaID int64, rendition string, pos int) string {
 }
 
 func (sm *SessionManager) GetOrCreate(mediaID int64, filePath string, rendition string, kind string, startPos int) (*Session, error) {
+	return sm.GetOrCreateEx(mediaID, filePath, rendition, kind, startPos, false)
+}
+
+func (sm *SessionManager) GetOrCreateEx(mediaID int64, filePath string, rendition string, kind string, startPos int, isHdr bool) (*Session, error) {
 	segDur := sm.cfg.SegmentDurationSec
 	if segDur <= 0 {
 		segDur = 4
@@ -70,7 +74,7 @@ func (sm *SessionManager) GetOrCreate(mediaID int64, filePath string, rendition 
 		return nil, fmt.Errorf("mkdir: %w", err)
 	}
 
-	cmd, err := spawnFFmpeg(filePath, sd, rendition, kind, sm.encoder, segDur, pos)
+	cmd, err := spawnFFmpeg(filePath, sd, rendition, kind, sm.encoder, segDur, pos, sm.cfg.HlsListSize, isHdr)
 	if err != nil {
 		os.RemoveAll(sd)
 		return nil, fmt.Errorf("spawn ffmpeg: %w", err)

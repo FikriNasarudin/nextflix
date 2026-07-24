@@ -15,6 +15,8 @@ docker compose up -d
 
 On startup, the **Scanner** walks the media directory and probes new video files with `ffprobe`. HD videos (≥720p) are automatically queued for background **480p HLS encoding** via `nice -n 19 ffmpeg`.
 
+During playback, the HLS player dynamically adapts quality based on your connection speed, offering 360p, 480p, 720p, and full-resolution (capped at 1080p) renditions on-demand. HEVC/HDR sources are tone-mapped and downscaled in real-time — no setup required.
+
 Open **http://localhost:8080** — first-run credentials:
 
 ```
@@ -28,14 +30,15 @@ Password: admin
 
 - **Direct Play** via `http.ServeContent` for local 1080p files
 - **Container Remuxing** (`ffmpeg -c copy`) when streaming unsupported containers
-- **480p HLS Downscaling** background low-priority transcoding (`nice -n 19 ffmpeg`)
+- **Adaptive HLS** with 360p, 480p, 720p, and full-resolution (capped at 1080p) on-demand transcoding — auto-switches to match bandwidth
+- **HDR Tone-Mapping** — HEVC/HDR sources are tonemapped to SDR on-the-fly
 - **JWT Authentication** with multi-profile support
 - **Kids Profiles** with parental rating limits (G, PG, PG-13, R, etc.)
 - **3-Layer Content Filtering** — Library, Tag, and Parental Rating
 - **TMDB Integration** — daily trending, auto-tagging by genre, YouTube trailers
 - **Recommendation Engine** — Continue Watching, Because You Watched, Trending
 - **Admin Panel** at `/admin` — user management, library CRUD, tag editor, settings
-- **hls.js Player** with 1080p/480p quality switching
+- **hls.js Player** with automatic quality switching + manual resolution selector
 - **Hover Preview** with YouTube trailers (1.2s delay)
 - **Embedded React SPA** — React 18 + React Router + TanStack Query, compiled into the binary via `go:embed`
 
@@ -58,10 +61,10 @@ Password: admin
 | `scanner.max_concurrent_ffprobes` | `2` | Max parallel ffprobe processes |
 | `scanner.scan_batch_size` | `50` | DB insert batch size |
 | `scanner.enable_filesystem_watcher` | `true` | Watch for new files |
-| `encoder.enable_auto_480p_hls` | `true` | Auto-encode new media to 480p HLS |
-| `encoder.hls_segment_duration_sec` | `4` | HLS segment duration |
-| `encoder.ffmpeg_preset` | `superfast` | x264 preset for encoding |
-| `encoder.hls_output_dir` | `./data/transcodes` | HLS transcoded output |
+| `transcoder.hls_segment_duration_sec` | `4` | HLS segment duration |
+| `transcoder.hls_list_size` | `30` | HLS live window (in segments). Larger = more resilient to stalls but uses more shmDir space |
+| `transcoder.shm_dir` | `/dev/shm/homestream` | Temp directory for HLS segments (use tmpfs for performance) |
+| `transcoder.session_idle_timeout_sec` | `30` | Kill idle ffmpeg sessions after this many seconds |
 | `integrations.tmdb_api_key` | — | TMDB API key (warning if missing — TMDB features disabled) |
 | `ui.theme` | `dark` | UI theme |
 | `ui.app_title` | `My Home Netflix` | Browser tab title |
@@ -138,7 +141,8 @@ SQLite3 with WAL mode. 12 tables managed via raw SQL (no ORM). Schema is auto-cr
 | `GET` | `/api/v1/media` | Browse media (filtered by profile) |
 | `GET` | `/api/v1/stream/{id}` | Direct Play stream |
 | `GET` | `/api/v1/remux/{id}` | Container remux stream |
-| `GET` | `/api/v1/hls/{id}/{rest...}` | HLS files (playlist.m3u8, segments/*.ts) |
+| `GET` | `/api/v1/transcode/{id}/master.m3u8` | HLS master playlist (all renditions) |
+| `GET` | `/api/v1/transcode/{id}/{rest...}` | HLS segment files |
 | `GET` | `/api/v1/progress` | Continue Watching list |
 | `PUT` | `/api/v1/progress` | Save playback position |
 | `GET` | `/api/v1/recommendations` | All recommendation rows |
@@ -211,7 +215,7 @@ cd web && npm run build       # Vite outputs to web/dist/
 CGO_ENABLED=1 go build .      # Embeds dist/ into the binary
 ```
 
-On startup, the server runs a full media scan and starts a filesystem watcher. New video files placed in the media directory are automatically detected, probed, and queued for 480p HLS conversion.
+On startup, the server runs a full media scan and starts a filesystem watcher. New video files placed in the media directory are automatically detected, probed, and queued for 480p HLS conversion. During playback, the transcoder creates on-demand rendition ladders (360p, 480p, 720p, capped 1080p) and the hls.js player auto-adapts to the viewer's bandwidth.
 
 ## Architecture
 

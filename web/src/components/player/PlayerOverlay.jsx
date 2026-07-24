@@ -29,6 +29,15 @@ function formatEndTime(remainingSeconds) {
   return 'Ends at ' + ends.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
+function resolutionLabel(h) {
+  if (h <= 480) return '480p'
+  if (h <= 576) return '540p'
+  if (h <= 720) return '720p'
+  if (h <= 1080) return '1080p'
+  if (h <= 1440) return '1440p'
+  return '4K'
+}
+
 function prefetchSegments(url, signal) {
   for (let i = 0; i < 16; i++) {
     fetch(url, {
@@ -58,6 +67,8 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   const seekPosRef = useRef(0)
   const displayOffsetRef = useRef(0)
   const segDurRef = useRef(4)
+  const listenerStoreRef = useRef(null)
+  const detachHandlersRef = useRef(null)
 
   const [currentItem, setCurrentItem] = useState(initialItem)
   const [playing, setPlaying] = useState(true)
@@ -113,14 +124,9 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       }
     } catch (e) {}
     try {
+      if (hlsRef.current) return
       const vh = v.videoHeight || 0
-      if (vh > 0) {
-        if (vh <= 360) setCurrentRes('360p')
-        else if (vh <= 480) setCurrentRes('480p')
-        else if (vh <= 720) setCurrentRes('720p')
-        else if (vh <= 1080) setCurrentRes('1080p')
-        else setCurrentRes('4K')
-      }
+      if (vh > 0) setCurrentRes(resolutionLabel(vh))
     } catch (e) {}
   }, [currentItem])
 
@@ -135,6 +141,15 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     const el = videoRef.current
     if (!el || !el.parentNode) return
 
+    ;(function detachStoredListeners() {
+      const stored = listenerStoreRef.current
+      if (stored) {
+        stored.handlers.forEach(({ event, fn, opts }) => stored.el.removeEventListener(event, fn, opts))
+        listenerStoreRef.current = null
+      }
+    })()
+
+    clearInterval(progressTimer.current)
     destroyHls()
     if (prefetchAbortRef.current) {
       prefetchAbortRef.current.abort()
@@ -153,8 +168,8 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     el.removeAttribute('src')
     el.load()
 
-    const startPos = Math.max(0, Math.floor(pos || 0))
-    seekPosRef.current = startPos
+    seekPosRef.current = Math.max(0, Math.floor(pos || 0))
+    const startPos = seekPosRef.current
     const segDur = segDurRef.current
     const quantized = Math.floor(startPos / segDur) * segDur
     displayOffsetRef.current = quantized
@@ -169,8 +184,13 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     let generation = 0
 
     function attachEventHandlers() {
+      const handlers = []
+      const add = (event, fn, opts) => { el.addEventListener(event, fn, opts); handlers.push({ event, fn, opts }) }
+
       const onPlay = () => { setPlaying(true); resetHideTimer() }
+      add('play', onPlay)
       const onPause = () => setPlaying(false)
+      add('pause', onPause)
       const onEnded = () => {
         if (item.media_type === 'movie') {
           setShowMovieEnd(true)
@@ -178,6 +198,7 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
           startNextEpisodeCountdown(item)
         }
       }
+      add('ended', onEnded)
       const onMeta = () => {
         setSwitchingSource(false)
         updateProgress()
@@ -189,21 +210,25 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
               setShowSkipIntro(false)
             }
           }
-          el.addEventListener('timeupdate', ck)
+          add('timeupdate', ck)
         }
       }
+      add('loadedmetadata', onMeta)
+      add('timeupdate', updateProgress)
+      add('progress', updateProgress)
 
-      el.addEventListener('play', onPlay)
-      el.addEventListener('pause', onPause)
-      el.addEventListener('ended', onEnded)
-      el.addEventListener('loadedmetadata', onMeta)
-      el.addEventListener('timeupdate', updateProgress)
-      el.addEventListener('progress', updateProgress)
-
-      el.addEventListener('volumechange', () => {
+      const onVolumeChange = () => {
         setVolume(el.volume)
         setIsMuted(el.muted)
-      })
+      }
+      add('volumechange', onVolumeChange)
+
+      listenerStoreRef.current = { el, handlers }
+      detachHandlersRef.current = () => {
+        handlers.forEach(({ event, fn, opts }) => el.removeEventListener(event, fn, opts))
+        listenerStoreRef.current = null
+        detachHandlersRef.current = null
+      }
 
       progressTimer.current = setInterval(() => {
         const displayOffset = displayOffsetRef.current
@@ -235,13 +260,13 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       if (gen > 1) setSwitchingSource(true)
 
       if (mode === 'transcode') {
-        const masterUrl = '/api/v1/transcode/' + item.id + '/master.m3u8?pos=' + startPos + '&token=' + encodeURIComponent(getToken() || '')
+        const masterUrl = '/api/v1/transcode/' + item.id + '/master.m3u8?pos=' + seekPosRef.current + '&token=' + encodeURIComponent(getToken() || '')
         if (Hls.isSupported()) {
           const hls = new Hls({
             maxBufferLength: 12,
             maxMaxBufferLength: 30,
-            startLevel: 0,
-            abrEwmaDefaultEstimate: isSlowConnection() ? 500000 : 2000000,
+            startLevel: isSlowConnection() ? 0 : -1,
+            abrEwmaDefaultEstimate: isSlowConnection() ? 500000 : 8000000,
             enableWorker: true,
             lowLatencyMode: false,
           })
@@ -259,20 +284,22 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
 
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             if (gen !== generation) return
-            const rem = startPos - displayOffsetRef.current
-            if (rem > 0) {
-              const trySeek = () => {
+            const trySeek = () => {
+              if (gen !== generation) return
+              const rem = seekPosRef.current - displayOffsetRef.current
+              if (rem > 0) {
                 if (el.buffered.length > 0 && el.buffered.end(el.buffered.length - 1) >= rem) {
                   el.currentTime = rem
                   el.play().then(() => setPlaying(true)).catch(() => {})
                 } else {
-                  el.addEventListener('canplay', trySeek, { once: true })
+                  setTimeout(trySeek, 200)
+                  return
                 }
+              } else {
+                el.play().then(() => setPlaying(true)).catch(() => {})
               }
-              trySeek()
-            } else {
-              el.play().then(() => setPlaying(true)).catch(() => {})
             }
+            setTimeout(trySeek, 0)
             setSwitchingSource(false)
           })
 
@@ -284,20 +311,16 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
                 setSwitchingSource(false)
                 return
               }
+              const curPos = Math.floor(displayOffsetRef.current + (el ? el.currentTime : 0))
               destroyHls()
-              trySource()
+              initPlayer(item, curPos)
             }
           })
 
           hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
             const level = hls.levels[data.level]
             if (level) {
-              const h = level.height || 0
-              if (h <= 360) setCurrentRes('360p')
-              else if (h <= 480) setCurrentRes('480p')
-              else if (h <= 720) setCurrentRes('720p')
-              else if (h <= 1080) setCurrentRes('1080p')
-              else setCurrentRes('4K')
+              setCurrentRes(resolutionLabel(level.height || 0))
             }
           })
 
@@ -415,6 +438,7 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       initPlayer(currentItem, 0)
     })
     return () => {
+      if (detachHandlersRef.current) detachHandlersRef.current()
       clearInterval(progressTimer.current)
       clearTimeout(hideTimer.current)
       clearInterval(nextEpTimerRef.current)
@@ -522,6 +546,28 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     document.addEventListener('fullscreenchange', handler)
     return () => document.removeEventListener('fullscreenchange', handler)
   }, [])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    let last = 0
+    const onActivity = () => {
+      const now = Date.now()
+      if (now - last < 100) return
+      last = now
+      resetHideTimer()
+    }
+    el.addEventListener('mousemove', onActivity)
+    el.addEventListener('touchstart', onActivity, { passive: true })
+    el.addEventListener('touchmove', onActivity, { passive: true })
+    el.addEventListener('click', onActivity)
+    return () => {
+      el.removeEventListener('mousemove', onActivity)
+      el.removeEventListener('touchstart', onActivity)
+      el.removeEventListener('touchmove', onActivity)
+      el.removeEventListener('click', onActivity)
+    }
+  }, [resetHideTimer])
 
   useEffect(() => {
     const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0

@@ -58,6 +58,7 @@ type TranscoderConfig struct {
 	SegmentDurationSec   int    `yaml:"segment_duration_sec"`
 	SessionIdleTimeoutSec int   `yaml:"session_idle_timeout_sec"`
 	ShmDir               string `yaml:"shm_dir"`
+	HlsListSize          int    `yaml:"hls_list_size"`
 }
 
 type IntegrationsConfig struct {
@@ -94,6 +95,7 @@ func Defaults() *Config {
 			SegmentDurationSec:    4,
 			SessionIdleTimeoutSec: 30,
 			ShmDir:                "/dev/shm/homestream",
+			HlsListSize:           30,
 		},
 		Data: DataConfig{
 			Dir:            "./data",

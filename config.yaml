@@ -27,6 +27,7 @@ transcoder:
   segment_duration_sec: 4
   session_idle_timeout_sec: 30
   shm_dir: "/dev/shm/homestream"
+  hls_list_size: 30
 
 integrations:
   tmdb_api_key: "change-me-to-a-real-key"
