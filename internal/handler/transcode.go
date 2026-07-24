@@ -59,12 +59,10 @@ func (h *TranscodeHandler) Master(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Write([]byte(master))
 
-	// Start the 480p session immediately
-	go func() {
-		if _, err := h.sm.GetOrCreate(id, filePath, "480p"); err != nil {
-			log.Printf("Transcode: failed to start 480p for media=%d: %v", id, err)
-		}
-	}()
+	// Start 480p session synchronously so ffmpeg begins encoding immediately
+	if _, err := h.sm.GetOrCreate(id, filePath, "480p"); err != nil {
+		log.Printf("Transcode: failed to start 480p for media=%d: %v", id, err)
+	}
 }
 
 func (h *TranscodeHandler) Segment(w http.ResponseWriter, r *http.Request) {
@@ -89,15 +87,17 @@ func (h *TranscodeHandler) Segment(w http.ResponseWriter, r *http.Request) {
 			var filePath string
 			h.db.QueryRow(`SELECT file_path FROM media_items WHERE id = ?`, id).Scan(&filePath)
 			if filePath != "" {
-				h.sm.GetOrCreate(id, filePath, rendition)
+				if _, err := h.sm.GetOrCreate(id, filePath, rendition); err != nil {
+					log.Printf("Transcode: failed to start session media=%d rendition=%s: %v", id, rendition, err)
+				}
 			}
 		}
 
 		absBase := h.shmDir
 		targetPath := filepath.Join(absBase, fmt.Sprintf("%d", id), rest)
 
-		// Poll for file up to ~5s (cover first segment encode time)
-		for i := 0; i < 50; i++ {
+		// Poll for file up to ~15s (cover first segment encode time)
+		for i := 0; i < 150; i++ {
 			if _, err := os.Stat(targetPath); err == nil {
 				break
 			}
