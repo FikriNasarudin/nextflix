@@ -15,13 +15,51 @@ import (
 )
 
 type TranscodeHandler struct {
-	db     *sql.DB
-	sm     *transcoder.SessionManager
+	db    *sql.DB
+	sm    *transcoder.SessionManager
 	shmDir string
 }
 
 func NewTranscodeHandler(db *sql.DB, sm *transcoder.SessionManager, shmDir string) *TranscodeHandler {
 	return &TranscodeHandler{db: db, sm: sm, shmDir: shmDir}
+}
+
+func parsePos(r *http.Request) int {
+	s := r.URL.Query().Get("pos")
+	if s == "" {
+		return 0
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil || v < 0 {
+		return 0
+	}
+	return v
+}
+
+func labelForHeight(height int) string {
+	switch {
+	case height >= 2160:
+		return "2160p"
+	case height >= 1440:
+		return "1440p"
+	case height >= 1080:
+		return "1080p"
+	case height >= 720:
+		return "720p"
+	default:
+		return "540p"
+	}
+}
+
+func parseBitrate(s string, fallback int) int {
+	if s == "" || s == "N/A" {
+		return fallback
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil || v <= 0 {
+		return fallback
+	}
+	return v
 }
 
 func (h *TranscodeHandler) Master(w http.ResponseWriter, r *http.Request) {
@@ -31,38 +69,45 @@ func (h *TranscodeHandler) Master(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pos := parsePos(r)
+
 	var filePath string
 	if err := h.db.QueryRow(`SELECT file_path FROM media_items WHERE id = ?`, id).Scan(&filePath); err != nil {
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
 
-	var codec string
-	h.db.QueryRow(`SELECT codec FROM media_video_tracks WHERE media_id = ? AND is_default = 1`, id).Scan(&codec)
-
-	var bw480p, bw1080p string
-	res480p, res1080p := "854x480", "1920x1080"
-
-	if codec == "h264" {
-		bw480p = "1000000"
-		bw1080p = "5000000"
-	} else {
-		bw480p = "1000000"
-		bw1080p = "5000000"
+	if _, err := h.sm.GetOrCreate(id, filePath, "480p", "transcode", pos); err != nil {
+		log.Printf("Transcode: failed to start 480p for media=%d pos=%d: %v", id, pos, err)
+		writeError(w, "Server is busy. Please try again in a moment.", http.StatusServiceUnavailable)
+		return
 	}
 
 	master := "#EXTM3U\n"
-	master += fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%s,RESOLUTION=%s\n480p/index.m3u8\n", bw480p, res480p)
-	master += fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%s,RESOLUTION=%s\n1080p/index.m3u8\n", bw1080p, res1080p)
+	master += fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=854x480\n480p/index.m3u8?pos=%d\n", pos)
+
+	var codec string
+	var width, height, isHdr int
+	var bitRate string
+	h.db.QueryRow(`SELECT codec, width, height, bit_rate, is_hdr FROM media_video_tracks WHERE media_id = ? AND is_default = 1`, id).Scan(&codec, &width, &height, &bitRate, &isHdr)
+
+	if codec == "h264" && isHdr == 0 && height > 480 {
+		label := labelForHeight(height)
+		if width <= 0 {
+			width = height * 16 / 9
+		}
+		bw := parseBitrate(bitRate, 4000000)
+
+		if _, err := h.sm.GetOrCreate(id, filePath, label, "remux", pos); err != nil {
+			log.Printf("Transcode: failed to start remux %s for media=%d pos=%d: %v", label, id, pos, err)
+		} else {
+			master += fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d\n%s/index.m3u8?pos=%d\n", bw, width, height, label, pos)
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Write([]byte(master))
-
-	// Start 480p session synchronously so ffmpeg begins encoding immediately
-	if _, err := h.sm.GetOrCreate(id, filePath, "480p"); err != nil {
-		log.Printf("Transcode: failed to start 480p for media=%d: %v", id, err)
-	}
 }
 
 func (h *TranscodeHandler) Segment(w http.ResponseWriter, r *http.Request) {
@@ -80,23 +125,28 @@ func (h *TranscodeHandler) Segment(w http.ResponseWriter, r *http.Request) {
 
 	ext := strings.ToLower(filepath.Ext(rest))
 
-	// For .m3u8 requests, ensure a session is running and wait for the file
 	if ext == ".m3u8" {
+		pos := parsePos(r)
+
 		rendition, found := strings.CutSuffix(rest, "/index.m3u8")
-		if found && (rendition == "480p" || rendition == "1080p") {
-			var filePath string
-			h.db.QueryRow(`SELECT file_path FROM media_items WHERE id = ?`, id).Scan(&filePath)
-			if filePath != "" {
-				if _, err := h.sm.GetOrCreate(id, filePath, rendition); err != nil {
-					log.Printf("Transcode: failed to start session media=%d rendition=%s: %v", id, rendition, err)
+		if found && (rendition == "480p" || rendition == "1080p" || rendition == "720p" || rendition == "1440p" || rendition == "2160p" || rendition == "540p") {
+			kind := "transcode"
+			if rendition != "480p" {
+				kind = "remux"
+			}
+			var fp string
+			h.db.QueryRow(`SELECT file_path FROM media_items WHERE id = ?`, id).Scan(&fp)
+			if fp != "" {
+				if _, err := h.sm.GetOrCreate(id, fp, rendition, kind, pos); err != nil {
+					log.Printf("Transcode: failed to start session media=%d rendition=%s pos=%d: %v", id, rendition, pos, err)
+					writeError(w, "Server is busy. Please try again in a moment.", http.StatusServiceUnavailable)
+					return
 				}
 			}
 		}
 
-		absBase := h.shmDir
-		targetPath := filepath.Join(absBase, fmt.Sprintf("%d", id), rest)
+		targetPath := filepath.Join(h.shmDir, fmt.Sprintf("%d", id), rendition, fmt.Sprintf("%d", pos), "index.m3u8")
 
-		// Poll for file up to ~15s (cover first segment encode time)
 		for i := 0; i < 150; i++ {
 			if _, err := os.Stat(targetPath); err == nil {
 				break
@@ -106,8 +156,8 @@ func (h *TranscodeHandler) Segment(w http.ResponseWriter, r *http.Request) {
 
 		data, err := os.ReadFile(targetPath)
 		if err != nil {
-			log.Printf("Transcode: segment 404 media=%d rest=%s: %v", id, rest, err)
-			writeError(w, "not found", http.StatusNotFound)
+			log.Printf("Transcode: segment 404 media=%d rest=%s pos=%d: %v", id, rest, pos, err)
+			writeError(w, "Server is busy. Please try again in a moment.", http.StatusServiceUnavailable)
 			return
 		}
 
@@ -120,7 +170,7 @@ func (h *TranscodeHandler) Segment(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if token != "" {
-			param := "?token=" + token
+			prefix := fmt.Sprintf("%d/", pos)
 			lines := strings.Split(string(data), "\n")
 			for i, line := range lines {
 				line = strings.TrimSpace(line)
@@ -130,11 +180,11 @@ func (h *TranscodeHandler) Segment(w http.ResponseWriter, r *http.Request) {
 				if strings.Contains(line, "://") {
 					continue
 				}
+				sep := "?"
 				if strings.Contains(line, "?") {
-					lines[i] = line + "&token=" + token
-				} else {
-					lines[i] = line + param
+					sep = "&"
 				}
+				lines[i] = prefix + line + sep + "token=" + token
 			}
 			data = []byte(strings.Join(lines, "\n"))
 		}

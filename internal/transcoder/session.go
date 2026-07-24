@@ -17,6 +17,8 @@ type Session struct {
 	MediaID    int64
 	FilePath   string
 	Rendition  string
+	Kind       string
+	Pos        int
 	Cmd        *FFmpegCmd
 	lastTouch  time.Time
 	mu         sync.Mutex
@@ -25,134 +27,89 @@ type Session struct {
 }
 
 type SessionManager struct {
-	cfg       config.TranscoderConfig
-	encoder   string
-	sessions  map[int64]*Session
-	mu        sync.Mutex
+	cfg      config.TranscoderConfig
+	encoder  string
+	sessions map[string]*Session
+	mu       sync.Mutex
 }
 
 func New(cfg config.TranscoderConfig, encoder string) *SessionManager {
 	return &SessionManager{
 		cfg:      cfg,
 		encoder:  encoder,
-		sessions: make(map[int64]*Session),
+		sessions: make(map[string]*Session),
 	}
 }
 
-func (sm *SessionManager) GetOrCreate(mediaID int64, filePath string, rendition string) (*Session, error) {
+func sessionKey(mediaID int64, rendition string, pos int) string {
+	return fmt.Sprintf("%d:%s:%d", mediaID, rendition, pos)
+}
+
+func segDirFor(shmDir string, mediaID int64, rendition string, pos int) string {
+	return filepath.Join(shmDir, fmt.Sprintf("%d", mediaID), rendition, fmt.Sprintf("%d", pos))
+}
+
+func (sm *SessionManager) GetOrCreate(mediaID int64, filePath string, rendition string, kind string, startPos int) (*Session, error) {
+	segDur := sm.cfg.SegmentDurationSec
+	if segDur <= 0 {
+		segDur = 4
+	}
+	pos := (startPos / segDur) * segDur
+	key := sessionKey(mediaID, rendition, pos)
+
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if s, ok := sm.sessions[mediaID]; ok {
+	if s, ok := sm.sessions[key]; ok {
 		s.Touch()
-		if s.Rendition != rendition {
-			if err := s.switchRendition(sm, mediaID, filePath, rendition, sm.encoder, sm.cfg.SegmentDurationSec); err != nil {
-				return nil, fmt.Errorf("switch rendition: %w", err)
-			}
-		}
 		return s, nil
 	}
 
-	if len(sm.sessions) >= 1 {
-		for id, s := range sm.sessions {
-			s.Kill()
-			delete(sm.sessions, id)
-			break
-		}
+	sd := segDirFor(sm.cfg.ShmDir, mediaID, rendition, pos)
+	if err := os.MkdirAll(sd, 0755); err != nil {
+		return nil, fmt.Errorf("mkdir: %w", err)
+	}
+
+	cmd, err := spawnFFmpeg(filePath, sd, rendition, kind, sm.encoder, segDur, pos)
+	if err != nil {
+		os.RemoveAll(sd)
+		return nil, fmt.Errorf("spawn ffmpeg: %w", err)
 	}
 
 	s := &Session{
 		MediaID:    mediaID,
 		FilePath:   filePath,
 		Rendition:  rendition,
+		Kind:       kind,
+		Pos:        pos,
+		Cmd:        cmd,
 		lastTouch:  time.Now(),
 		generation: 1,
 	}
 
-	segDir := filepath.Join(sm.cfg.ShmDir, fmt.Sprintf("%d", mediaID), rendition)
-	os.MkdirAll(segDir, 0755)
-
-	cmd, err := spawnFFmpeg(filePath, segDir, rendition, sm.encoder, sm.cfg.SegmentDurationSec)
-	if err != nil {
-		os.RemoveAll(filepath.Join(sm.cfg.ShmDir, fmt.Sprintf("%d", mediaID)))
-		return nil, fmt.Errorf("spawn ffmpeg: %w", err)
-	}
-	s.Cmd = cmd
-
 	if err := cmd.Start(); err != nil {
-		os.RemoveAll(filepath.Join(sm.cfg.ShmDir, fmt.Sprintf("%d", mediaID)))
+		os.RemoveAll(sd)
 		return nil, fmt.Errorf("start ffmpeg: %w", err)
 	}
 
-	sm.sessions[mediaID] = s
-	log.Printf("Transcoder: started %s for media=%d (pid=%d)", rendition, mediaID, cmd.Cmd.Process.Pid)
+	sm.sessions[key] = s
+	log.Printf("Transcoder: started %s %s for media=%d pos=%d (pid=%d)", kind, rendition, mediaID, pos, cmd.Cmd.Process.Pid)
 
 	gen := atomic.LoadInt32(&s.generation)
-	go func(cmd *FFmpegCmd, gen int32) {
+	go func(cmd *FFmpegCmd, key string, mediaID int64, segDir string, gen int32) {
 		cmd.Wait()
 		sm.mu.Lock()
-		if found, ok := sm.sessions[mediaID]; ok &&
+		if found, ok := sm.sessions[key]; ok &&
 			atomic.LoadInt32(&found.generation) == gen &&
 			atomic.LoadInt32(&found.killed) == 0 {
-			delete(sm.sessions, mediaID)
-			os.RemoveAll(filepath.Join(sm.cfg.ShmDir, fmt.Sprintf("%d", mediaID)))
-			log.Printf("Transcoder: cleaned up dead session media=%d", mediaID)
+			delete(sm.sessions, key)
+			os.RemoveAll(segDir)
+			log.Printf("Transcoder: cleaned up dead session %s", key)
 		}
 		sm.mu.Unlock()
-	}(cmd, gen)
+	}(cmd, key, mediaID, sd, gen)
 
 	return s, nil
-}
-
-func (s *Session) switchRendition(sm *SessionManager, mediaID int64, filePath string, newRendition string, encoder string, segDur int) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.Rendition == newRendition {
-		return nil
-	}
-
-	s.Kill()
-
-	oldDir := filepath.Join(filepath.Dir(s.Cmd.SegDir))
-	os.RemoveAll(oldDir)
-
-	s.FilePath = filePath
-	s.Rendition = newRendition
-	s.lastTouch = time.Now()
-
-	segDir := filepath.Join(filepath.Dir(oldDir), newRendition)
-	os.MkdirAll(segDir, 0755)
-
-	cmd, err := spawnFFmpeg(filePath, segDir, newRendition, encoder, segDur)
-	if err != nil {
-		return fmt.Errorf("spawn ffmpeg: %w", err)
-	}
-	s.Cmd = cmd
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start ffmpeg: %w", err)
-	}
-
-	atomic.AddInt32(&s.generation, 1)
-	atomic.StoreInt32(&s.killed, 0)
-
-	gen := atomic.LoadInt32(&s.generation)
-	go func(cmd *FFmpegCmd, gen int32) {
-		cmd.Wait()
-		sm.mu.Lock()
-		if found, ok := sm.sessions[mediaID]; ok &&
-			atomic.LoadInt32(&found.generation) == gen &&
-			atomic.LoadInt32(&found.killed) == 0 {
-			delete(sm.sessions, mediaID)
-			os.RemoveAll(filepath.Join(sm.cfg.ShmDir, fmt.Sprintf("%d", mediaID)))
-			log.Printf("Transcoder: cleaned up dead session media=%d", mediaID)
-		}
-		sm.mu.Unlock()
-	}(cmd, gen)
-
-	log.Printf("Transcoder: switched to %s for media=%d (pid=%d)", newRendition, mediaID, cmd.Cmd.Process.Pid)
-	return nil
 }
 
 func (s *Session) Touch() {
@@ -184,10 +141,13 @@ func (sm *SessionManager) ShmDir() string {
 func (sm *SessionManager) KillAll() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	for id, s := range sm.sessions {
+	for _, s := range sm.sessions {
 		s.Kill()
-		os.RemoveAll(filepath.Join(sm.cfg.ShmDir, fmt.Sprintf("%d", id)))
-		delete(sm.sessions, id)
+	}
+	for key, s := range sm.sessions {
+		sd := segDirFor(sm.cfg.ShmDir, s.MediaID, s.Rendition, s.Pos)
+		os.RemoveAll(sd)
+		delete(sm.sessions, key)
 	}
 }
 
@@ -201,12 +161,13 @@ func (sm *SessionManager) StartReaper(ctx context.Context) {
 			return
 		case <-ticker.C:
 			sm.mu.Lock()
-			for id, s := range sm.sessions {
+			for key, s := range sm.sessions {
 				if s.IdleDuration() > time.Duration(sm.cfg.SessionIdleTimeoutSec)*time.Second {
-					log.Printf("Transcoder: reaping idle session media=%d (idle for %v)", id, s.IdleDuration())
+					log.Printf("Transcoder: reaping idle session %s (idle for %v)", key, s.IdleDuration())
 					s.Kill()
-					os.RemoveAll(filepath.Join(sm.cfg.ShmDir, fmt.Sprintf("%d", id)))
-					delete(sm.sessions, id)
+					sd := segDirFor(sm.cfg.ShmDir, s.MediaID, s.Rendition, s.Pos)
+					os.RemoveAll(sd)
+					delete(sm.sessions, key)
 				}
 			}
 			sm.mu.Unlock()

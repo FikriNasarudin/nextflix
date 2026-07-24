@@ -55,6 +55,9 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   const audioIndexRef = useRef(null)
   const currentModeRef = useRef('')
   const prefetchAbortRef = useRef(null)
+  const seekPosRef = useRef(0)
+  const displayOffsetRef = useRef(0)
+  const segDurRef = useRef(4)
 
   const [currentItem, setCurrentItem] = useState(initialItem)
   const [playing, setPlaying] = useState(true)
@@ -94,8 +97,9 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   const updateProgress = useCallback(() => {
     const v = videoRef.current
     if (!v || isDragging.current) return
-    const ct = v.currentTime
-    const dur = isFinite(v.duration) && v.duration > 0 ? v.duration : (currentItem.duration_seconds || 0)
+    const displayOffset = displayOffsetRef.current
+    const ct = displayOffset + v.currentTime
+    const dur = currentItem.duration_seconds || 0
     setCurrentTime(ct)
     setDuration(dur)
     if (playedRef.current && dur > 0) {
@@ -120,50 +124,75 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     } catch (e) {}
   }, [currentItem])
 
-  const handleProgressClick = useCallback((clientX) => {
-    const el = progressRef.current
+  const seekTo = useCallback((targetPos) => {
     const v = videoRef.current
-    if (!el || !v) return
-    const rect = el.getBoundingClientRect()
-    const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-    const dur = isFinite(v.duration) && v.duration > 0 ? v.duration : (currentItem.duration_seconds || 0)
-    if (dur > 0) {
-      v.currentTime = pos * dur
+    if (!v) return
+    const dur = currentItem.duration_seconds || 0
+    if (dur <= 0) return
+    const displayOffset = displayOffsetRef.current
+    const currentActual = displayOffset + v.currentTime
+    if (Math.abs(targetPos - currentActual) < 20) {
+      const seg = targetPos - displayOffset
+      if (seg >= 0 && seg < dur) v.currentTime = seg
+    } else if (targetPos >= 0 && targetPos < dur) {
+      setSwitchingSource(true)
+      destroyHls()
+      seekPosRef.current = targetPos
+      initPlayer(currentItem, targetPos)
     }
-  }, [currentItem])
+  }, [currentItem, destroyHls])
 
   const onProgressMouseDown = useCallback((e) => {
     e.preventDefault()
     isDragging.current = true
-    handleProgressClick(e.clientX)
-    const onMove = (ev) => { handleProgressClick(ev.clientX) }
-    const onUp = () => {
+    const onMove = (ev) => {
+      const el = progressRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const ratio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
+      if (playedRef.current) playedRef.current.style.width = ratio * 100 + '%'
+    }
+    const onUp = (ev) => {
       isDragging.current = false
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
+      const el = progressRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const ratio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
+      const dur = currentItem.duration_seconds || 0
+      seekTo(ratio * dur)
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
-  }, [handleProgressClick])
+  }, [currentItem, seekTo])
 
   const onProgressTouchStart = useCallback((e) => {
     const touch = e.touches[0]
     if (!touch) return
     isDragging.current = true
-    handleProgressClick(touch.clientX)
     const onMove = (ev) => {
       ev.preventDefault()
-      const t = ev.touches[0]
-      if (t) handleProgressClick(t.clientX)
+      const el = progressRef.current
+      if (!el || !ev.touches[0]) return
+      const rect = el.getBoundingClientRect()
+      const ratio = Math.max(0, Math.min(1, (ev.touches[0].clientX - rect.left) / rect.width))
+      if (playedRef.current) playedRef.current.style.width = ratio * 100 + '%'
     }
-    const onEnd = () => {
+    const onEnd = (ev) => {
       isDragging.current = false
       document.removeEventListener('touchmove', onMove)
       document.removeEventListener('touchend', onEnd)
+      const el = progressRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const ratio = Math.max(0, Math.min(1, (ev.changedTouches[0]?.clientX - rect.left) / rect.width))
+      const dur = currentItem.duration_seconds || 0
+      seekTo(ratio * dur)
     }
     document.addEventListener('touchmove', onMove, { passive: false })
     document.addEventListener('touchend', onEnd)
-  }, [handleProgressClick])
+  }, [currentItem, seekTo])
 
   const destroyHls = useCallback(() => {
     if (hlsRef.current) {
@@ -172,7 +201,7 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     }
   }, [])
 
-  const initPlayer = useCallback((item) => {
+  const initPlayer = useCallback((item, pos) => {
     const el = videoRef.current
     if (!el || !el.parentNode) return
 
@@ -193,6 +222,12 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
 
     el.removeAttribute('src')
     el.load()
+
+    const startPos = Math.max(0, Math.floor(pos || 0))
+    seekPosRef.current = startPos
+    const segDur = segDurRef.current
+    const quantized = Math.floor(startPos / segDur) * segDur
+    displayOffsetRef.current = quantized
 
     const canDirect = canPlayDirect(item)
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
@@ -241,7 +276,8 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       })
 
       progressTimer.current = setInterval(() => {
-        const ct = el.currentTime
+        const displayOffset = displayOffsetRef.current
+        const ct = displayOffset + el.currentTime
         if (ct > 0 && item?.id) {
           apiFetch('/progress', {
             method: 'PUT',
@@ -269,7 +305,7 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       if (gen > 1) setSwitchingSource(true)
 
       if (mode === 'transcode') {
-        const masterUrl = '/api/v1/transcode/' + item.id + '/master.m3u8' + tokenParam()
+        const masterUrl = '/api/v1/transcode/' + item.id + '/master.m3u8?pos=' + startPos + tokenParam()
         if (Hls.isSupported()) {
           const hls = new Hls({
             maxBufferLength: 12,
@@ -293,12 +329,31 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
 
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             if (gen !== generation) return
-            el.play().then(() => setPlaying(true)).catch(() => {})
+            const rem = startPos - displayOffsetRef.current
+            if (rem > 0) {
+              const trySeek = () => {
+                if (el.buffered.length > 0 && el.buffered.end(el.buffered.length - 1) >= rem) {
+                  el.currentTime = rem
+                  el.play().then(() => setPlaying(true)).catch(() => {})
+                } else {
+                  el.addEventListener('canplay', trySeek, { once: true })
+                }
+              }
+              trySeek()
+            } else {
+              el.play().then(() => setPlaying(true)).catch(() => {})
+            }
             setSwitchingSource(false)
           })
 
           hls.on(Hls.Events.ERROR, (event, data) => {
             if (data.fatal && gen === generation) {
+              if (data.response?.code === 503) {
+                destroyHls()
+                setError('Server is busy. Please try again in a moment.')
+                setSwitchingSource(false)
+                return
+              }
               destroyHls()
               trySource()
             }
@@ -349,7 +404,16 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   useLayoutEffect(() => {
     const el = videoRef.current
     if (!el || !el.parentNode) return
-    initPlayer(currentItem)
+    if (!currentItem?.id) return
+    apiFetch('/progress').then(items => {
+      if (!Array.isArray(items)) return
+      const p = items.find(i => i.media_id === currentItem.id)
+      const savedPos = (p && p.position_seconds > 10 && !p.is_finished) ? p.position_seconds : 0
+      seekPosRef.current = savedPos
+      initPlayer(currentItem, savedPos)
+    }).catch(() => {
+      initPlayer(currentItem, 0)
+    })
     return () => {
       clearInterval(progressTimer.current)
       clearTimeout(hideTimer.current)
@@ -411,7 +475,7 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       }
       if (e.key === 's' || e.key === 'S') {
         e.preventDefault()
-        v.currentTime = v.currentTime + 85 - v.currentTime
+        seekTo(85)
         setShowSkipIntro(false)
       }
       if (e.key === 'f' || e.key === 'F') {
@@ -427,12 +491,14 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       }
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
-        v.currentTime = Math.max(0, v.currentTime - 10)
+        const ct = displayOffsetRef.current + v.currentTime
+        seekTo(Math.max(0, ct - 10))
       }
       if (e.key === 'ArrowRight') {
         e.preventDefault()
-        const dur = isFinite(v.duration) ? v.duration : (currentItem.duration_seconds || 0)
-        v.currentTime = Math.min(dur, v.currentTime + 10)
+        const ct = displayOffsetRef.current + v.currentTime
+        const dur = currentItem.duration_seconds || 0
+        seekTo(Math.min(dur, ct + 10))
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault()
@@ -517,20 +583,15 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   }, [])
 
   const handleSkipIntro = () => {
-    const v = videoRef.current
-    if (v) {
-      v.currentTime = 85
-      setShowSkipIntro(false)
-    }
+    seekTo(85)
+    setShowSkipIntro(false)
   }
 
   const handleReplay = () => {
-    const v = videoRef.current
-    if (!v) return
-    v.currentTime = 0
-    v.play()
     setShowMovieEnd(false)
-    setPlaying(true)
+    setCurrentTime(0)
+    destroyHls()
+    initPlayer(currentItem, 0)
   }
 
   const handleClose = () => {
@@ -642,9 +703,14 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
           {error && (
             <div className={styles.switchOverlay}>
               <span>{error}</span>
-              <button className={styles.qualityBtn} onClick={handleClose} style={{ marginTop: 12 }}>
-                Back to Browse
-              </button>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+                <button className={styles.qualityBtn} onClick={() => { setError(null); initPlayer(currentItem, seekPosRef.current) }}>
+                  Retry
+                </button>
+                <button className={styles.qualityBtn} onClick={handleClose}>
+                  Back to Browse
+                </button>
+              </div>
             </div>
           )}
 
