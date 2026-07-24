@@ -7,18 +7,16 @@ import (
 	"strconv"
 	"strings"
 
-	"nextflix/internal/encoder"
 	"nextflix/internal/library"
 )
 
 type MediaHandler struct {
 	db *sql.DB
 	lm *library.LibraryManager
-	enc *encoder.Encoder
 }
 
-func NewMediaHandler(db *sql.DB, lm *library.LibraryManager, enc *encoder.Encoder) *MediaHandler {
-	return &MediaHandler{db: db, lm: lm, enc: enc}
+func NewMediaHandler(db *sql.DB, lm *library.LibraryManager) *MediaHandler {
+	return &MediaHandler{db: db, lm: lm}
 }
 
 func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -75,24 +73,14 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`
 		SELECT m.id, m.library_id, m.title, m.media_type, m.tmdb_id, m.rating,
 		       m.duration_seconds, m.trailer_youtube_id, m.backdrop_path, m.poster_path, m.created_at,
-		       COALESCE(m.hls_480p_path, ''),
 		       COALESCE(v.width, 0), COALESCE(v.height, 0), COALESCE(v.codec, ''),
 		       COALESCE(s.count, 0), COALESCE(a.count, 0),
-		       COALESCE(j.queued, 0), COALESCE(j.inprogress, 0), COALESCE(j.failed, 0),
-		       COALESCE(m.hls_stale, 0), COALESCE(m.source_mtime, 0),
 		       COALESCE(m.overview, ''), COALESCE(m.year, ''), COALESCE(m.show_name, ''), COALESCE(m.season_number, 0), COALESCE(m.episode_number, 0), COALESCE(m.episode_title, ''),
 		       COALESCE(m.enrich_status, 'pending'), COALESCE(m.enrich_error, ''), COALESCE(m.last_enriched_at, '')
 		FROM media_items m
 		LEFT JOIN (SELECT media_id, codec, width, height, is_default FROM media_video_tracks WHERE is_default = 1 GROUP BY media_id) v ON v.media_id = m.id
 		LEFT JOIN (SELECT media_id, COUNT(*) AS count FROM media_subtitles GROUP BY media_id) s ON s.media_id = m.id
 		LEFT JOIN (SELECT media_id, COUNT(*) AS count FROM media_audio_tracks GROUP BY media_id) a ON a.media_id = m.id
-		LEFT JOIN (
-			SELECT media_id,
-				SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued,
-				SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS inprogress,
-				SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
-			FROM encode_jobs GROUP BY media_id
-		) j ON j.media_id = m.id
 		`+whereClause+`
 		ORDER BY m.created_at DESC
 		LIMIT ? OFFSET ?
@@ -115,16 +103,11 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		BackdropPath     string  `json:"backdrop_path"`
 		PosterPath       string  `json:"poster_path"`
 		CreatedAt        string  `json:"created_at"`
-		HlsPath          string  `json:"hls_path"`
-		IsOptimized      bool    `json:"is_optimized"`
-		OptimStatus      string  `json:"optim_status"`
 		Width            int     `json:"width"`
 		Height           int     `json:"height"`
 		VideoCodec       string  `json:"video_codec"`
 		SubtitleCount    int     `json:"subtitle_count"`
 		AudioCount       int     `json:"audio_count"`
-		HlsStale         bool    `json:"hls_stale"`
-		SourceMtime      int64   `json:"source_mtime"`
 		Overview         string  `json:"overview"`
 		Year             string  `json:"year"`
 		ShowName         string  `json:"show_name"`
@@ -138,33 +121,15 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	var items []item
 	for rows.Next() {
 		var i item
-		var hlsPath string
-		var queued, inprogress, failed int
-		var hlsStale int
 		if err := rows.Scan(
 			&i.ID, &i.LibraryID, &i.Title, &i.MediaType, &i.TmdbID, &i.Rating,
 			&i.DurationSeconds, &i.TrailerYoutubeID, &i.BackdropPath, &i.PosterPath, &i.CreatedAt,
-			&hlsPath, &i.Width, &i.Height, &i.VideoCodec, &i.SubtitleCount, &i.AudioCount,
-			&queued, &inprogress, &failed, &hlsStale, &i.SourceMtime,
+			&i.Width, &i.Height, &i.VideoCodec, &i.SubtitleCount, &i.AudioCount,
 			&i.Overview, &i.Year, &i.ShowName, &i.SeasonNumber, &i.EpisodeNumber, &i.EpisodeTitle,
 			&i.EnrichStatus, &i.EnrichError, &i.LastEnrichedAt,
 		); err != nil {
 			writeError(w, "scan error", http.StatusInternalServerError)
 			return
-		}
-		i.HlsPath = hlsPath
-		i.IsOptimized = hlsPath != ""
-		i.HlsStale = hlsStale == 1
-		if i.IsOptimized && i.HlsStale {
-			i.OptimStatus = "stale"
-		} else if i.IsOptimized {
-			i.OptimStatus = "completed"
-		} else if inprogress > 0 {
-			i.OptimStatus = "in_progress"
-		} else if queued > 0 {
-			i.OptimStatus = "queued"
-		} else {
-			i.OptimStatus = "pending"
 		}
 		items = append(items, i)
 	}
@@ -359,33 +324,4 @@ func (h *MediaHandler) RefreshMetadata(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
-func (h *MediaHandler) Reencode(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, "invalid id", http.StatusBadRequest)
-		return
-	}
 
-	var filePath string
-	var duration int
-	if err := h.db.QueryRow(`SELECT file_path, duration_seconds FROM media_items WHERE id = ?`, id).Scan(&filePath, &duration); err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, "not found", http.StatusNotFound)
-		} else {
-			writeError(w, "database error", http.StatusInternalServerError)
-		}
-		return
-	}
-
-	if h.enc == nil {
-		writeError(w, "encoder unavailable", http.StatusServiceUnavailable)
-		return
-	}
-
-	if err := h.enc.Reenqueue(id, filePath, int64(duration)); err != nil {
-		writeJSON(w, map[string]string{"status": "queue_full", "error": err.Error()})
-		return
-	}
-	h.db.Exec(`INSERT INTO activity_log (type, message) VALUES ('encode', ?)`, "Re-encode triggered for media "+strconv.FormatInt(id, 10))
-	writeJSON(w, map[string]string{"status": "queued"})
-}

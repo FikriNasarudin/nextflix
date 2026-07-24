@@ -17,22 +17,20 @@ import (
 )
 
 type LibraryManager struct {
-	db        *sql.DB
-	cfg       *config.Config
-	scanner   *scanner.Scanner
-	resolver  *resolver.ResolverChain
-	provider  *provider.ProviderManager
-	tmdbSync  *tmdb.Sync
-	encoderCh chan<- scanner.EncoderJob
+	db       *sql.DB
+	cfg      *config.Config
+	scanner  *scanner.Scanner
+	resolver *resolver.ResolverChain
+	provider *provider.ProviderManager
+	tmdbSync *tmdb.Sync
 }
 
-func New(db *sql.DB, cfg *config.Config, encoderCh chan<- scanner.EncoderJob) *LibraryManager {
+func New(db *sql.DB, cfg *config.Config) *LibraryManager {
 	dirs := []string{
 		cfg.Data.Dir,
 		cfg.Data.MetadataDir,
 		cfg.Data.ImageCacheDir,
 		cfg.Data.CollectionsDir,
-		cfg.Encoder.HLSOutputDir,
 		filepath.Join(filepath.Dir(cfg.Database.Path), "images"),
 		filepath.Join(cfg.Data.Dir, "subtitles"),
 	}
@@ -64,19 +62,17 @@ func New(db *sql.DB, cfg *config.Config, encoderCh chan<- scanner.EncoderJob) *L
 		db,
 		cfg.Scanner,
 		namingOpts,
-		encoderCh,
 		filepath.Join(filepath.Dir(cfg.Database.Path), "images"),
 		filepath.Join(cfg.Data.Dir, "subtitles"),
 	)
 
 	return &LibraryManager{
-		db:        db,
-		cfg:       cfg,
-		scanner:   scn,
-		resolver:  resolverChain,
-		provider:  provMgr,
-		tmdbSync:  tmdb.NewSync(db),
-		encoderCh: encoderCh,
+		db:       db,
+		cfg:      cfg,
+		scanner:  scn,
+		resolver: resolverChain,
+		provider: provMgr,
+		tmdbSync: tmdb.NewSync(db),
 	}
 }
 

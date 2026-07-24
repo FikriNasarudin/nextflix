@@ -39,7 +39,6 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		       MAX(COALESCE(mi.backdrop_path, mb.file_path, '')) as backdrop_path,
 		MAX(CASE WHEN mp.file_path IS NOT NULL THEN '' WHEN si.file_path IS NOT NULL THEN '' ELSE COALESCE(mi.poster_path, '') END) as poster_path,
 		       mi.show_name, mi.season_number, mi.episode_number, mi.episode_title, mi.year, mi.overview,
-		       MAX(COALESCE(mi.hls_480p_path, '')) as hls_480p_path,
 		       mi.file_path,
 		COALESCE((SELECT GROUP_CONCAT(t.name, '||') FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE mt.media_id = mi.id), '') as tags,
 		       mi.created_at,
@@ -108,7 +107,6 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		EpisodeTitle     string   `json:"episode_title"`
 		Year             string   `json:"year"`
 		Overview         string   `json:"overview"`
-		HLS480pPath      string   `json:"hls_path"`
 		Container        string   `json:"container"`
 		VideoCodec       string   `json:"video_codec"`
 		Width            int      `json:"width"`
@@ -128,7 +126,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 			&i.ID, &i.LibraryID, &i.Title, &i.MediaType, &i.TmdbID, &i.Rating,
 			&i.DurationSeconds, &i.TrailerYoutubeID, &i.BackdropPath, &i.PosterPath,
 			&i.ShowName, &i.SeasonNumber, &i.EpisodeNumber, &i.EpisodeTitle, &i.Year, &i.Overview,
-			&i.HLS480pPath, &filePath, &tagsStr, &i.CreatedAt,
+			&filePath, &tagsStr, &i.CreatedAt,
 			&i.VideoCodec, &i.Width, &i.Height, &i.IsHDR,
 			&i.AudioCodec, &i.AudioChannels,
 		); err != nil {

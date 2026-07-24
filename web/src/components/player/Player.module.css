@@ -386,50 +386,6 @@
   .endTimeBadge { display: none; }
 }
 
-.wrapper :global(.vjs-control-bar) {
-  display: none !important;
-  visibility: hidden !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-}
-.wrapper :global(.video-js.vjs-controls-disabled .vjs-control-bar) {
-  display: none !important;
-  visibility: hidden !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-}
-.wrapper :global(.video-js .vjs-big-play-button) {
-  border: 2px solid var(--accent, #00fbfb);
-  background: rgba(10,10,15,.5);
-  backdrop-filter: blur(8px);
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  line-height: 60px;
-  font-size: 2rem;
-  left: 50%;
-  top: 50%;
-  margin-left: -32px;
-  margin-top: -32px;
-  transition: all .2s ease;
-}
-.wrapper :global(.video-js:hover .vjs-big-play-button) {
-  background: rgba(10,10,15,.7);
-  border-color: var(--accent, #00fbfb);
-  transform: scale(1.05);
-}
-.wrapper :global(.video-js .vjs-tech) {
-  object-fit: contain;
-}
-.wrapper :global(.video-js) {
-  width: 100% !important;
-  height: 100% !important;
-  font-family: 'Inter', system-ui, sans-serif;
-}
-.wrapper :global(.video-js .vjs-loading-spinner) {
-  z-index: 10;
-}
-
 .audioSelect {
   background: #2a292f;
   color: #e4e1e9;

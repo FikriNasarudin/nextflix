@@ -19,7 +19,7 @@ type Config struct {
 	Server       ServerConfig       `yaml:"server"`
 	Database     DatabaseConfig     `yaml:"database"`
 	Scanner      ScannerConfig      `yaml:"scanner"`
-	Encoder      EncoderConfig      `yaml:"encoder"`
+	Transcoder   TranscoderConfig   `yaml:"transcoder"`
 	Integrations IntegrationsConfig `yaml:"integrations"`
 	UI           UIConfig           `yaml:"ui"`
 	Data         DataConfig         `yaml:"data"`
@@ -53,12 +53,11 @@ type ScannerConfig struct {
 	EnableFilesystemWatcher bool  `yaml:"enable_filesystem_watcher"`
 }
 
-type EncoderConfig struct {
-	EnableAuto480pHLS       bool   `yaml:"enable_auto_480p_hls"`
-	HLSSegmentDurationSec   int    `yaml:"hls_segment_duration_sec"`
-	FFmpegPreset            string `yaml:"ffmpeg_preset"`
-	HLSOutputDir            string `yaml:"hls_output_dir"`
-	MaxConcurrentTranscodes int    `yaml:"max_concurrent_transcodes"`
+type TranscoderConfig struct {
+	Enabled              bool   `yaml:"enabled"`
+	SegmentDurationSec   int    `yaml:"segment_duration_sec"`
+	SessionIdleTimeoutSec int   `yaml:"session_idle_timeout_sec"`
+	ShmDir               string `yaml:"shm_dir"`
 }
 
 type IntegrationsConfig struct {
@@ -90,12 +89,11 @@ func Defaults() *Config {
 			ScanBatchSize:          50,
 			EnableFilesystemWatcher: true,
 		},
-		Encoder: EncoderConfig{
-			EnableAuto480pHLS:       true,
-			HLSSegmentDurationSec:   4,
-			FFmpegPreset:            "ultrafast",
-			HLSOutputDir:            "./data/transcodes",
-			MaxConcurrentTranscodes: 1,
+		Transcoder: TranscoderConfig{
+			Enabled:               true,
+			SegmentDurationSec:    4,
+			SessionIdleTimeoutSec: 30,
+			ShmDir:                "/dev/shm/homestream",
 		},
 		Data: DataConfig{
 			Dir:            "./data",
@@ -162,8 +160,8 @@ func (c *Config) validate() error {
 	if c.Scanner.MediaDir == "" {
 		errs = append(errs, "scanner.media_dir is required")
 	}
-	if c.Encoder.HLSOutputDir == "" {
-		c.Encoder.HLSOutputDir = filepath.Join(c.Data.Dir, "transcodes")
+	if c.Transcoder.ShmDir == "" {
+		c.Transcoder.ShmDir = "/dev/shm/homestream"
 	}
 	if c.Integrations.TmdbAPIKey == "" || placeholderAPIKeys[c.Integrations.TmdbAPIKey] {
 		log.Println("[WARN] integrations.tmdb_api_key is not set — TMDB sync will be disabled")

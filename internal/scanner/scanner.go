@@ -74,12 +74,6 @@ type ProbeResult struct {
 	} `json:"format"`
 }
 
-type EncoderJob struct {
-	MediaID          int64
-	FilePath         string
-	DurationSeconds  int64
-}
-
 type ScanProgress struct {
 	mu       sync.Mutex
 	Running  bool   `json:"running"`
@@ -134,14 +128,13 @@ func (p *ScanProgress) setLastItem(item string) {
 type ProcessFunc func(path string) *resolver.ResolveResult
 
 type Scanner struct {
-	db        *sql.DB
-	cfg       config.ScannerConfig
-	opts      *resolver.NamingOptions
-	probeSem  chan struct{}
-	encoderCh chan<- EncoderJob
-	progress  *ScanProgress
-	imageDir  string
-	subsDir   string
+	db       *sql.DB
+	cfg      config.ScannerConfig
+	opts     *resolver.NamingOptions
+	probeSem chan struct{}
+	progress *ScanProgress
+	imageDir string
+	subsDir  string
 }
 
 var videoExts = map[string]bool{
@@ -154,7 +147,7 @@ var videoExts = map[string]bool{
 	".m4v":  true,
 }
 
-func New(db *sql.DB, cfg config.ScannerConfig, opts *resolver.NamingOptions, encoderCh chan<- EncoderJob, imageDir, subsDir string) *Scanner {
+func New(db *sql.DB, cfg config.ScannerConfig, opts *resolver.NamingOptions, imageDir, subsDir string) *Scanner {
 	if imageDir == "" {
 		imageDir = "./data/images"
 	}
@@ -162,14 +155,13 @@ func New(db *sql.DB, cfg config.ScannerConfig, opts *resolver.NamingOptions, enc
 		subsDir = "./data/subtitles"
 	}
 	return &Scanner{
-		db:        db,
-		cfg:       cfg,
-		opts:      opts,
-		probeSem:  make(chan struct{}, cfg.MaxConcurrentFFprobes),
-		encoderCh: encoderCh,
-		progress:  &ScanProgress{},
-		imageDir:  imageDir,
-		subsDir:   subsDir,
+		db:       db,
+		cfg:      cfg,
+		opts:     opts,
+		probeSem: make(chan struct{}, cfg.MaxConcurrentFFprobes),
+		progress: &ScanProgress{},
+		imageDir: imageDir,
+		subsDir:  subsDir,
 	}
 }
 
@@ -455,19 +447,10 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string, re
 
 	if existingID > 0 {
 		var dbSize, dbMtime int64
-		var hlsPath string
-		s.db.QueryRow(`SELECT COALESCE(source_size,0), COALESCE(source_mtime,0), COALESCE(hls_480p_path,'') FROM media_items WHERE id = ?`, existingID).Scan(&dbSize, &dbMtime, &hlsPath)
+		s.db.QueryRow(`SELECT COALESCE(source_size,0), COALESCE(source_mtime,0) FROM media_items WHERE id = ?`, existingID).Scan(&dbSize, &dbMtime)
 
-		if dbSize != srcSize || dbMtime != srcMtime {
-			if dbSize != 0 || dbMtime != 0 {
-				s.db.Exec(`UPDATE media_items SET source_size = ?, source_mtime = ? WHERE id = ?`, srcSize, srcMtime, existingID)
-				if hlsPath != "" {
-					s.db.Exec(`UPDATE media_items SET hls_stale = 1 WHERE id = ?`, existingID)
-					log.Printf("Scanner: source changed for media=%d, marked HLS stale", existingID)
-				}
-			} else if statErr == nil {
-				s.db.Exec(`UPDATE media_items SET source_size = ?, source_mtime = ? WHERE id = ?`, srcSize, srcMtime, existingID)
-			}
+		if (dbSize != srcSize || dbMtime != srcMtime) && (dbSize != 0 || dbMtime != 0) && statErr == nil {
+			s.db.Exec(`UPDATE media_items SET source_size = ?, source_mtime = ? WHERE id = ?`, srcSize, srcMtime, existingID)
 		}
 
 		if existingDur > 0 {
@@ -571,14 +554,6 @@ func (s *Scanner) processFile(path string, libraryID int64, mediaType string, re
 
 		id, _ := res.LastInsertId()
 		log.Printf("Scanner: added %s (id=%d, library=%d, type=%s, duration=%ds)", ep.title, id, libraryID, mediaType, duration)
-
-		if s.encoderCh != nil {
-			select {
-			case s.encoderCh <- EncoderJob{MediaID: id, FilePath: path, DurationSeconds: int64(duration)}:
-			default:
-				log.Printf("Scanner: encoder queue full, skipping encode for media %d", id)
-			}
-		}
 
 		if !s.detectLocalImages(id, path, ep.showName, ep.seasonNumber, mediaType) {
 			s.extractEmbeddedCover(id, path)

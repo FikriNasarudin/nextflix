@@ -3,27 +3,17 @@ package admin
 import (
 	"database/sql"
 	"net/http"
-	"strconv"
-
-	"nextflix/internal/encoder"
 )
 
 type EncodingHandler struct {
-	db  *sql.DB
-	enc *encoder.Encoder
+	db *sql.DB
 }
 
-func NewEncodingHandler(db *sql.DB, enc *encoder.Encoder) *EncodingHandler {
-	return &EncodingHandler{db: db, enc: enc}
+func NewEncodingHandler(db *sql.DB) *EncodingHandler {
+	return &EncodingHandler{db: db}
 }
 
-func (h *EncodingHandler) Streams(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, "invalid id", http.StatusBadRequest)
-		return
-	}
-
+func (h *EncodingHandler) Streams(w http.ResponseWriter, r *http.Request, id int64) {
 	type video struct {
 		ID          int64  `json:"id"`
 		Codec       string `json:"codec"`
@@ -115,131 +105,4 @@ func (h *EncodingHandler) Streams(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, out)
-}
-
-func (h *EncodingHandler) Optimization(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, "invalid id", http.StatusBadRequest)
-		return
-	}
-
-	type job struct {
-		Rendition       string `json:"rendition"`
-		Status          string `json:"status"`
-		ProgressPercent int    `json:"progress_percent"`
-		StartedAt       string `json:"started_at"`
-		FinishedAt      string `json:"finished_at"`
-		Error           string `json:"error"`
-		OutputPath      string `json:"output_path"`
-		OutputSize      int64  `json:"output_size"`
-	}
-	type optim struct {
-		HlsPath            string `json:"hls_path"`
-		IsOptimized        bool   `json:"is_optimized"`
-		HlsStale           bool   `json:"hls_stale"`
-		SourceMtime        int64  `json:"source_mtime"`
-		EncodedSourceMtime int64  `json:"encoded_source_mtime"`
-		Jobs               []job  `json:"jobs"`
-		TotalSize          int64  `json:"total_size"`
-	}
-
-	var resp optim
-	resp.Jobs = []job{}
-
-	var hlsPath string
-	var hlsStale int
-	var srcMtime int64
-	h.db.QueryRow(`SELECT COALESCE(hls_480p_path, ''), COALESCE(hls_stale, 0), COALESCE(source_mtime, 0) FROM media_items WHERE id = ?`, id).Scan(&hlsPath, &hlsStale, &srcMtime)
-	resp.HlsPath = hlsPath
-	resp.IsOptimized = hlsPath != ""
-	resp.HlsStale = hlsStale == 1
-	resp.SourceMtime = srcMtime
-
-	h.db.QueryRow(`SELECT COALESCE(MAX(source_mtime), 0) FROM encode_jobs WHERE media_id = ? AND status = 'completed'`, id).Scan(&resp.EncodedSourceMtime)
-
-	jrows, err := h.db.Query(`
-		SELECT rendition, status, progress_percent,
-		       COALESCE(started_at, ''), COALESCE(finished_at, ''),
-		       COALESCE(error, ''), COALESCE(output_path, ''), output_size
-		FROM encode_jobs WHERE media_id = ? ORDER BY id ASC
-	`, id)
-	if err == nil {
-		for jrows.Next() {
-			var j job
-			if err := jrows.Scan(&j.Rendition, &j.Status, &j.ProgressPercent, &j.StartedAt, &j.FinishedAt, &j.Error, &j.OutputPath, &j.OutputSize); err == nil {
-				resp.Jobs = append(resp.Jobs, j)
-				resp.TotalSize += j.OutputSize
-			}
-		}
-		jrows.Close()
-	}
-
-	writeJSON(w, resp)
-}
-
-func (h *EncodingHandler) Queue(w http.ResponseWriter, r *http.Request) {
-	if h.enc == nil {
-		writeJSON(w, []encoder.QueueItem{})
-		return
-	}
-	writeJSON(w, h.enc.Queue())
-}
-
-func (h *EncodingHandler) ReencodeStale(w http.ResponseWriter, r *http.Request) {
-	if h.enc == nil {
-		writeError(w, "encoder not available", http.StatusServiceUnavailable)
-		return
-	}
-	n, err := h.enc.ReencodeAllStale()
-	if err != nil {
-		writeError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, map[string]any{"enqueued": n})
-}
-
-func (h *EncodingHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
-	if h.enc == nil {
-		writeError(w, "encoder not available", http.StatusServiceUnavailable)
-		return
-	}
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, "invalid id", http.StatusBadRequest)
-		return
-	}
-	rendition := r.PathValue("rendition")
-	if rendition == "" {
-		writeError(w, "missing rendition", http.StatusBadRequest)
-		return
-	}
-	if err := h.enc.CancelJob(id, rendition); err != nil {
-		writeError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, map[string]string{"status": "cancelled"})
-}
-
-func (h *EncodingHandler) ClearQueue(w http.ResponseWriter, r *http.Request) {
-	if h.enc == nil {
-		writeError(w, "encoder not available", http.StatusServiceUnavailable)
-		return
-	}
-	n, err := h.enc.ClearQueue()
-	if err != nil {
-		writeError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, map[string]any{"cleared": n})
-}
-
-func (h *EncodingHandler) Info(w http.ResponseWriter, r *http.Request) {
-	var encoderVersion, lastInvalidated string
-	h.db.QueryRow(`SELECT COALESCE(value, '') FROM settings WHERE key = 'encoder_version'`).Scan(&encoderVersion)
-	h.db.QueryRow(`SELECT COALESCE(value, '') FROM settings WHERE key = 'last_invalidated_at'`).Scan(&lastInvalidated)
-	writeJSON(w, map[string]string{
-		"encoder_version":     encoderVersion,
-		"last_invalidated_at": lastInvalidated,
-	})
 }

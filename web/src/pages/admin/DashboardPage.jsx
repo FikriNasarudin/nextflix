@@ -33,31 +33,24 @@ export default function DashboardPage() {
   const [activity, setActivity] = useState([])
   const [scanStatus, setScanStatus] = useState(null)
   const [settings, setSettings] = useState(null)
-  const [encoderInfo, setEncoderInfo] = useState(null)
   const [runningAction, setRunningAction] = useState(null)
-  const [queue, setQueue] = useState([])
 
   useEffect(() => {
     adminFetch('/stats').then(setStats)
     adminFetch('/activity').then(setActivity)
     adminFetch('/settings').then(data => setSettings(data?.settings || {}))
-    adminFetch('/encoder/info').then(setEncoderInfo).catch(() => {})
 
     let interval
     const poll = async () => {
       try {
-        const [scanData, statsData, queueData, infoData] = await Promise.all([
+        const [scanData, statsData] = await Promise.all([
           fetch('/api/v1/admin/scan/status', {
             headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') },
           }).then(r => r.json()),
           adminFetch('/stats'),
-          adminFetch('/encoder/queue'),
-          adminFetch('/encoder/info').catch(() => null),
         ])
         setScanStatus(scanData)
         if (statsData) setStats(statsData)
-        if (queueData) setQueue(queueData)
-        if (infoData) setEncoderInfo(infoData)
         if (!scanData.running) {
           setRunningAction(null)
         }
@@ -82,29 +75,6 @@ export default function DashboardPage() {
   const triggerSync = async () => {
     setRunningAction('sync')
     await adminFetch('/sync-tmdb', { method: 'POST' })
-  }
-
-  const triggerReencodeStale = async () => {
-    setRunningAction('reencode')
-    const res = await adminFetch('/encoder/reencode-stale', { method: 'POST' })
-    if (res?.enqueued > 0) {
-      alert('Queued ' + res.enqueued + ' items for re-encoding')
-    } else {
-      alert('No stale items to re-encode')
-    }
-    setRunningAction(null)
-  }
-
-  const triggerClearQueue = async () => {
-    if (!confirm('Clear all queued jobs?')) return
-    const res = await adminFetch('/encoder/clear-queue', { method: 'POST' })
-    if (res?.cleared > 0) {
-      alert('Cleared ' + res.cleared + ' queued jobs')
-    }
-  }
-
-  const triggerCancelJob = async (mediaId, rendition) => {
-    await adminFetch('/encoder/cancel/' + mediaId + '/' + rendition, { method: 'POST' })
   }
 
   const me = stats?.media
@@ -144,76 +114,6 @@ export default function DashboardPage() {
         <EnrichmentCard title="TV Shows Enrichment" data={me?.tv_enrichment} />
       </div>
 
-      <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 12 }}>
-        Video Optimization
-        {encoderInfo?.encoder_version && (
-          <span style={{ fontSize: '.78rem', color: 'var(--muted)', marginLeft: 8, fontWeight: 400 }}>
-            Encoder v{encoderInfo.encoder_version}
-            {encoderInfo.last_invalidated_at && <> &middot; Last invalidated {encoderInfo.last_invalidated_at}</>}
-          </span>
-        )}
-      </h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 16, marginBottom: 32 }}>
-        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
-          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--accent)' }}>{stats?.optimization?.optimized || 0}</div>
-          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Optimized</div>
-        </div>
-        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
-          <div style={{ fontSize: '2rem', fontWeight: 800, color: '#ff9800' }}>{stats?.optimization?.stale || 0}</div>
-          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Stale</div>
-        </div>
-        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
-          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--muted)' }}>{stats?.optimization?.pending || 0}</div>
-          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Pending</div>
-        </div>
-        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
-          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)' }}>{stats?.optimization?.in_progress || 0}</div>
-          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>In Progress</div>
-        </div>
-        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
-          <div style={{ fontSize: '2rem', fontWeight: 800, color: '#e50914' }}>{stats?.optimization?.failed || 0}</div>
-          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Failed</div>
-        </div>
-        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
-          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--tertiary-container)' }}>{stats?.optimization?.queue_length || 0}</div>
-          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>Queue</div>
-        </div>
-        <div className="stat-card" style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: 20, textAlign: 'center', border: '1px solid rgba(255,255,255,.04)' }}>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text)' }}>{((stats?.optimization?.total_size_bytes || 0) / 1024 / 1024 / 1024).toFixed(1)} GB</div>
-          <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginTop: 4 }}>HLS Storage</div>
-        </div>
-      </div>
-
-      {(queue?.length || 0) > 0 && (
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 600 }}>Encoder Queue ({queue.length})</h2>
-            <button className="btn btn-sm btn-primary" onClick={triggerClearQueue} style={{ fontSize: '.78rem', padding: '4px 10px', background: '#e50914' }}>
-              Clear Queue
-            </button>
-          </div>
-          <div style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: '0 var(--space-md)', maxHeight: 280, overflowY: 'auto', border: '1px solid rgba(255,255,255,.04)' }}>
-            {queue.map((q, i) => (
-              <div key={i} style={{ display: 'flex', gap: 12, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,.04)', alignItems: 'center' }}>
-                <span style={{ color: 'var(--text)', fontSize: '.85rem', minWidth: 200, flex: 1 }}>{q.title || 'Media #' + q.media_id}</span>
-                <span style={{ color: 'var(--muted)', fontSize: '.78rem', minWidth: 60 }}>{q.rendition}</span>
-                <div style={{ minWidth: 140 }}>
-                  <div style={{ height: 5, background: 'var(--surface-container-high)', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: (q.progress_percent || 0) + '%', background: q.status === 'failed' ? '#e50914' : 'var(--accent)', transition: 'width .3s' }} />
-                  </div>
-                </div>
-                <span style={{ color: q.status === 'failed' ? '#e50914' : 'var(--accent)', fontSize: '.78rem', minWidth: 80, textAlign: 'right' }}>{q.status} {q.progress_percent > 0 ? q.progress_percent + '%' : ''}</span>
-                {q.status === 'in_progress' && (
-                  <button className="btn btn-sm" onClick={() => triggerCancelJob(q.media_id, q.rendition)} style={{ fontSize: '.78rem', padding: '2px 8px', background: 'transparent', color: 'var(--muted)', border: '1px solid var(--outline-variant)' }} title="Cancel job">
-                    &#10005;
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div style={{ marginBottom: 24 }}>
         <p style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: 8 }}>
           Media Directory: {settings?.media_directory || 'Not set'}
@@ -230,9 +130,6 @@ export default function DashboardPage() {
           </button>
           <button className="btn btn-primary" onClick={async () => { setRunningAction('refresh-missing'); await adminFetch('/refresh-metadata-missing', { method: 'POST' }) }} disabled={!!runningAction} style={{ background: '#ff9800' }}>
             {runningAction === 'refresh-missing' ? 'Refreshing...' : 'Retry Missing'}
-          </button>
-          <button className="btn btn-primary" onClick={triggerReencodeStale} disabled={!!runningAction || !stats?.optimization?.stale} style={{ background: '#e65100' }}>
-            {runningAction === 'reencode' ? 'Queuing...' : 'Re-encode All Stale'}
           </button>
         </div>
 

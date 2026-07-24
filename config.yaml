@@ -22,11 +22,11 @@ scanner:
   scan_batch_size: 50
   enable_filesystem_watcher: true
 
-encoder:
-  enable_auto_480p_hls: true     # Automatically creates 480p HLS from 1080p
-  hls_segment_duration_sec: 4
-  ffmpeg_preset: "superfast"
-  hls_output_dir: "./data/transcodes"
+transcoder:
+  enabled: true
+  segment_duration_sec: 4
+  session_idle_timeout_sec: 30
+  shm_dir: "/dev/shm/homestream"
 
 integrations:
   tmdb_api_key: "change-me-to-a-real-key"

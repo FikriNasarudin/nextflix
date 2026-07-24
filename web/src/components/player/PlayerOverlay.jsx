@@ -1,6 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import videojs from 'video.js'
-import 'video.js/dist/video-js.css'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import Hls from 'hls.js'
 import { apiFetch, getToken, tokenParam, isSlowConnection, canPlayDirect, showToast } from '../../api/client'
 import EpisodeDrawer from './EpisodeDrawer'
 import styles from './Player.module.css'
@@ -42,7 +41,7 @@ function prefetchSegments(url, signal) {
 
 export default function PlayerOverlay({ item: initialItem, allMedia, similarItems = [], onClose, onEpisodeSelect }) {
   const videoRef = useRef(null)
-  const playerRef = useRef(null)
+  const hlsRef = useRef(null)
   const containerRef = useRef(null)
   const progressRef = useRef(null)
   const playedRef = useRef(null)
@@ -55,6 +54,7 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   const nextEpTimerRef = useRef(null)
   const audioIndexRef = useRef(null)
   const currentModeRef = useRef('')
+  const prefetchAbortRef = useRef(null)
 
   const [currentItem, setCurrentItem] = useState(initialItem)
   const [playing, setPlaying] = useState(true)
@@ -85,53 +85,50 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     setShowOverlays(true)
     clearTimeout(hideTimer.current)
     hideTimer.current = setTimeout(() => {
-      const p = playerRef.current
-      if (p && p.paused()) return
+      const v = videoRef.current
+      if (v && v.paused()) return
       setShowOverlays(false)
     }, 3000)
   }, [])
 
   const updateProgress = useCallback(() => {
-    const p = playerRef.current
-    if (!p || isDragging.current) return
-    const ct = p.currentTime()
-    const dur = isFinite(p.duration()) && p.duration() > 0 ? p.duration() : (currentItem.duration_seconds || 0)
+    const v = videoRef.current
+    if (!v || isDragging.current) return
+    const ct = v.currentTime
+    const dur = isFinite(v.duration) && v.duration > 0 ? v.duration : (currentItem.duration_seconds || 0)
     setCurrentTime(ct)
     setDuration(dur)
     if (playedRef.current && dur > 0) {
       playedRef.current.style.width = (ct / dur * 100) + '%'
     }
     try {
-      const b = p.buffered()
-      if (b.length > 0 && dur > 0) {
+      const b = v.buffered
+      if (b && b.length > 0 && dur > 0) {
         const be = b.end(b.length - 1)
         if (bufferRef.current) bufferRef.current.style.width = Math.min(be / dur * 100, 100) + '%'
       }
     } catch (e) {}
     try {
-      const tech = p.tech(true)
-      if (tech) {
-        const vh = tech.el_().videoHeight || 0
-        if (vh > 0) {
-          if (vh <= 360) setCurrentRes('360p')
-          else if (vh <= 480) setCurrentRes('480p')
-          else if (vh <= 720) setCurrentRes('720p')
-          else if (vh <= 1080) setCurrentRes('1080p')
-          else setCurrentRes('4K')
-        }
+      const vh = v.videoHeight || 0
+      if (vh > 0) {
+        if (vh <= 360) setCurrentRes('360p')
+        else if (vh <= 480) setCurrentRes('480p')
+        else if (vh <= 720) setCurrentRes('720p')
+        else if (vh <= 1080) setCurrentRes('1080p')
+        else setCurrentRes('4K')
       }
     } catch (e) {}
   }, [currentItem])
 
   const handleProgressClick = useCallback((clientX) => {
     const el = progressRef.current
-    const p = playerRef.current
-    if (!el || !p) return
+    const v = videoRef.current
+    if (!el || !v) return
     const rect = el.getBoundingClientRect()
     const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-    const dur = isFinite(p.duration()) && p.duration() > 0 ? p.duration() : (currentItem.duration_seconds || 0)
+    const dur = isFinite(v.duration) && v.duration > 0 ? v.duration : (currentItem.duration_seconds || 0)
     if (dur > 0) {
-      p.currentTime(pos * dur)
+      v.currentTime = pos * dur
     }
   }, [currentItem])
 
@@ -168,13 +165,21 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     document.addEventListener('touchend', onEnd)
   }, [handleProgressClick])
 
+  const destroyHls = useCallback(() => {
+    if (hlsRef.current) {
+      hlsRef.current.destroy()
+      hlsRef.current = null
+    }
+  }, [])
+
   const initPlayer = useCallback((item) => {
     const el = videoRef.current
-    if (!el) return
+    if (!el || !el.parentNode) return
 
-    if (playerRef.current) {
-      playerRef.current.dispose()
-      playerRef.current = null
+    destroyHls()
+    if (prefetchAbortRef.current) {
+      prefetchAbortRef.current.abort()
+      prefetchAbortRef.current = null
     }
 
     setSwitchingSource(true)
@@ -186,73 +191,71 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     setDuration(0)
     clearInterval(nextEpTimerRef.current)
 
-    const slow = isSlowConnection()
+    el.removeAttribute('src')
+    el.load()
+
     const canDirect = canPlayDirect(item)
-    const useHLS = !!item.hls_path
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 
-    const videoJsOptions = {
-      autoplay: true,
-      controls: false,
-      fluid: false,
-      fill: true,
-      html5: {
-        nativeAudioTracks: true,
-        nativeVideoTracks: false,
-        vhs: {
-          overrideNative: isIOS,
-          useBandwidthFromLocalStorage: true,
-          limitRenditionByPlayerDimensions: true,
-          maxBufferLength: 30,
-          maxMaxBufferLength: 60,
-        },
-      },
-      userActions: {
-        hotkeys: true,
-      },
-      inactivityTimeout: 3000,
-      liveui: false,
-      nativeControlsForTouch: true,
-    }
-
-    let player
-    try {
-      player = videojs(el, videoJsOptions)
-    } catch (e) {
-      setError('Player initialization failed: ' + e.message)
-      setSwitchingSource(false)
-      return
-    }
-    playerRef.current = player
-    player.fill = true
-
-    player.ready(function () {
-      this.controls(false)
-      const tech = this.tech(true)
-      let vhs = tech && tech.vhs
-      if (!vhs && this.vhs) vhs = this.vhs
-      const xhr = vhs && vhs.xhr
-      if (xhr) {
-        const orig = xhr.beforeRequest
-        xhr.beforeRequest = function (options) {
-          const tk = getToken()
-          if (tk && options.uri.indexOf('token=') === -1) {
-            options.uri += (options.uri.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(tk)
-          }
-          return orig ? orig(options) : options
-        }
-      }
-    })
-
-    let modes = []
-    if (useHLS) modes.push('hls')
+    let modes = ['transcode']
     if (canDirect) modes.push('direct')
-    modes.push('remux')
 
     let currentIdx = 0
     let generation = 0
 
-    const prefetchAbort = new AbortController()
+    function attachEventHandlers() {
+      const onPlay = () => { setPlaying(true); resetHideTimer() }
+      const onPause = () => setPlaying(false)
+      const onEnded = () => {
+        if (item.media_type === 'movie') {
+          setShowMovieEnd(true)
+        } else {
+          startNextEpisodeCountdown(item)
+        }
+      }
+      const onMeta = () => {
+        setSwitchingSource(false)
+        updateProgress()
+        if (item.media_type === 'tv') {
+          const ck = () => {
+            if (el.currentTime >= 10 && el.currentTime < 85) {
+              setShowSkipIntro(true)
+            } else {
+              setShowSkipIntro(false)
+            }
+          }
+          el.addEventListener('timeupdate', ck)
+        }
+      }
+
+      el.addEventListener('play', onPlay)
+      el.addEventListener('pause', onPause)
+      el.addEventListener('ended', onEnded)
+      el.addEventListener('loadedmetadata', onMeta)
+      el.addEventListener('timeupdate', updateProgress)
+      el.addEventListener('progress', updateProgress)
+
+      el.addEventListener('volumechange', () => {
+        setVolume(el.volume)
+        setIsMuted(el.muted)
+      })
+
+      progressTimer.current = setInterval(() => {
+        const ct = el.currentTime
+        if (ct > 0 && item?.id) {
+          apiFetch('/progress', {
+            method: 'PUT',
+            body: JSON.stringify({
+              media_id: item.id,
+              position_seconds: Math.floor(ct),
+              duration_seconds: Math.floor(el.duration || item.duration_seconds || 0),
+              is_finished: false,
+            }),
+            skipCache: true,
+          })
+        }
+      }, 5000)
+    }
 
     function trySource() {
       if (currentIdx >= modes.length) {
@@ -265,119 +268,112 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       const gen = ++generation
       if (gen > 1) setSwitchingSource(true)
 
-      player.off('error')
-      player.off('loadedmetadata')
+      if (mode === 'transcode') {
+        const masterUrl = '/api/v1/transcode/' + item.id + '/master.m3u8' + tokenParam()
+        if (Hls.isSupported()) {
+          const hls = new Hls({
+            maxBufferLength: 12,
+            maxMaxBufferLength: 30,
+            startLevel: 0,
+            abrEwmaDefaultEstimate: isSlowConnection() ? 500000 : 2000000,
+            enableWorker: true,
+            lowLatencyMode: false,
+          })
+          hlsRef.current = hls
 
-      player.on('error', function onErr() {
-        if (gen !== generation) return
-        player.off('error', onErr)
-        player.off('loadedmetadata', onMeta)
-        trySource()
-      })
+          const tk = getToken()
+          if (tk) {
+            hls.config.xhrSetup = function (xhr, url) {
+              if (url.indexOf('token=') === -1) {
+                const sep = url.indexOf('?') >= 0 ? '&' : '?'
+                xhr.open('GET', url + sep + 'token=' + encodeURIComponent(tk), true)
+              }
+            }
+          }
 
-      const onMeta = function onMeta() {
-        if (gen !== generation) return
-        setSwitchingSource(false)
-      }
-      player.on('loadedmetadata', onMeta)
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (gen !== generation) return
+            el.play().then(() => setPlaying(true)).catch(() => {})
+            setSwitchingSource(false)
+          })
 
-      let srcUrl = mode === 'hls'
-        ? '/api/v1/hls/' + item.id + '/index.m3u8' + tokenParam()
-        : (mode === 'direct' ? '/api/v1/stream/' : '/api/v1/remux/') + item.id + tokenParam()
-      if (mode === 'remux' && audioIndexRef.current != null) {
-        srcUrl += (srcUrl.indexOf('?') >= 0 ? '&' : '?') + 'audio_index=' + audioIndexRef.current
-      }
-      const src = { src: srcUrl, type: mode === 'hls' ? 'application/x-mpegURL' : mode === 'direct' ? 'video/' + (item.container || 'mp4') : 'video/mp4' }
+          hls.on(Hls.Events.ERROR, (event, data) => {
+            if (data.fatal && gen === generation) {
+              destroyHls()
+              trySource()
+            }
+          })
 
-      player.src(src)
-      player.load()
+          hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+            const level = hls.levels[data.level]
+            if (level) {
+              const h = level.height || 0
+              if (h <= 360) setCurrentRes('360p')
+              else if (h <= 480) setCurrentRes('480p')
+              else if (h <= 720) setCurrentRes('720p')
+              else if (h <= 1080) setCurrentRes('1080p')
+              else setCurrentRes('4K')
+            }
+          })
 
-      if (mode === 'direct' && (item.duration_seconds || 0) > 180) {
-        prefetchSegments(srcUrl, prefetchAbort.signal)
+          hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
+            setAudioIndex(null)
+          })
+
+          hls.loadSource(masterUrl)
+          hls.attachMedia(el)
+
+          attachEventHandlers()
+        } else if (el.canPlayType('application/vnd.apple.mpegurl')) {
+          el.src = masterUrl
+          attachEventHandlers()
+        } else {
+          trySource()
+          return
+        }
+      } else {
+        const streamUrl = '/api/v1/stream/' + item.id + tokenParam()
+        el.src = streamUrl
+        attachEventHandlers()
+
+        if ((item.duration_seconds || 0) > 180) {
+          prefetchAbortRef.current = new AbortController()
+          prefetchSegments(streamUrl, prefetchAbortRef.current.signal)
+        }
       }
     }
 
     trySource()
-
-    player.on('useractive', () => {
-      setShowOverlays(true)
-      clearTimeout(hideTimer.current)
-      hideTimer.current = setTimeout(() => {
-        if (player.paused()) return
-        setShowOverlays(false)
-      }, 3000)
-    })
-
-    player.on('userinactive', () => {
-      setShowOverlays(false)
-    })
-
-    const onPlay = () => { setPlaying(true); resetHideTimer() }
-    const onPause = () => setPlaying(false)
-    const onEnded = () => {
-      if (item.media_type === 'movie') {
-        setShowMovieEnd(true)
-      } else {
-        startNextEpisodeCountdown(item)
-      }
-    }
-
-    player.on('play', onPlay)
-    player.on('pause', onPause)
-    player.on('ended', onEnded)
-    player.on('loadedmetadata', () => {
-      setSwitchingSource(false)
-      updateProgress()
-    })
-    player.on('timeupdate', updateProgress)
-    player.on('progress', updateProgress)
-    player.on('volumechange', () => {
-      setVolume(player.volume())
-      setIsMuted(player.muted())
-    })
-
-    progressTimer.current = setInterval(() => {
-      const ct = player.currentTime()
-      if (ct > 0 && item?.id) {
-        apiFetch('/progress', {
-          method: 'PUT',
-          body: JSON.stringify({
-            media_id: item.id,
-            position_seconds: Math.floor(ct),
-            duration_seconds: Math.floor(player.duration() || item.duration_seconds || 0),
-            is_finished: false,
-          }),
-          skipCache: true,
-        })
-      }
-    }, 5000)
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const el = videoRef.current
+    if (!el || !el.parentNode) return
     initPlayer(currentItem)
     return () => {
       clearInterval(progressTimer.current)
       clearTimeout(hideTimer.current)
       clearInterval(nextEpTimerRef.current)
-      if (playerRef.current) {
-        playerRef.current.dispose()
-        playerRef.current = null
+      destroyHls()
+      if (prefetchAbortRef.current) {
+        prefetchAbortRef.current.abort()
+      }
+      if (videoRef.current) {
+        videoRef.current.removeAttribute('src')
+        videoRef.current.load()
       }
     }
   }, [currentItem])
 
   useEffect(() => {
-    if (currentModeRef.current === 'hls' && playerRef.current) {
-      const tracks = playerRef.current.audioTracks()
+    if (currentModeRef.current === 'transcode' && hlsRef.current && audioIndex != null) {
+      const tracks = hlsRef.current.audioTracks
       if (tracks && tracks.length > 0) {
-        for (let i = 0; i < tracks.length; i++) {
-          tracks[i].enabled = (i === audioIndex)
+        const idx = Math.min(audioIndex, tracks.length - 1)
+        if (idx >= 0 && tracks[idx]) {
+          hlsRef.current.audioTrack = idx
         }
-        return
       }
-    }
-    if (audioIndex != null && playerRef.current) {
-      initPlayer(currentItem)
     }
   }, [audioIndex])
 
@@ -385,20 +381,18 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     if (!currentItem?.id) return
     let cancelled = false
     apiFetch('/media/' + currentItem.id + '/subtitles').then(subs => {
-      if (cancelled || !subs) return
+      if (cancelled || !subs || !videoRef.current) return
       setSubtitles(subs)
-      const p = playerRef.current
-      if (!p) return
+      const el = videoRef.current
       const tk = getToken()
       const t = tk ? '?token=' + encodeURIComponent(tk) : ''
       subs.forEach(sub => {
-        const url = '/api/v1/subtitle/' + sub.id + '/file' + t
-        p.addRemoteTextTrack({
-          kind: 'subtitles',
-          src: url,
-          srclang: sub.language || 'und',
-          label: sub.language || 'Subtitles',
-        }, false)
+        const track = document.createElement('track')
+        track.kind = 'subtitles'
+        track.src = '/api/v1/subtitle/' + sub.id + '/file' + t
+        track.srclang = sub.language || 'und'
+        track.label = sub.language || 'Subtitles'
+        el.appendChild(track)
       })
     }).catch(() => {})
     apiFetch('/media/' + currentItem.id + '/audio').then(audios => {
@@ -408,30 +402,16 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   }, [currentItem])
 
   useEffect(() => {
-    const p = playerRef.current
-    if (!p) return
-    const checkSkip = () => {
-      if (currentItem.media_type === 'tv' && p.currentTime() >= 10 && p.currentTime() < 85) {
-        setShowSkipIntro(true)
-      } else {
-        setShowSkipIntro(false)
-      }
-    }
-    p.on('timeupdate', checkSkip)
-    return () => p.off('timeupdate', checkSkip)
-  }, [currentItem])
-
-  useEffect(() => {
     const handleKey = (e) => {
-      const p = playerRef.current
-      if (!p) return
+      const v = videoRef.current
+      if (!v) return
       if (e.key === ' ' || e.key === 'k' || e.key === 'K') {
         e.preventDefault()
-        if (p.paused()) { p.play() } else { p.pause() }
+        if (v.paused) { v.play() } else { v.pause() }
       }
       if (e.key === 's' || e.key === 'S') {
         e.preventDefault()
-        p.currentTime(p.currentTime() + 85 - p.currentTime())
+        v.currentTime = v.currentTime + 85 - v.currentTime
         setShowSkipIntro(false)
       }
       if (e.key === 'f' || e.key === 'F') {
@@ -443,26 +423,26 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       }
       if (e.key === 'm' || e.key === 'M') {
         e.preventDefault()
-        p.muted(!p.muted())
+        v.muted = !v.muted
       }
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
-        p.currentTime(Math.max(0, p.currentTime() - 10))
+        v.currentTime = Math.max(0, v.currentTime - 10)
       }
       if (e.key === 'ArrowRight') {
         e.preventDefault()
-        const dur = isFinite(p.duration()) ? p.duration() : (currentItem.duration_seconds || 0)
-        p.currentTime(Math.min(dur, p.currentTime() + 10))
+        const dur = isFinite(v.duration) ? v.duration : (currentItem.duration_seconds || 0)
+        v.currentTime = Math.min(dur, v.currentTime + 10)
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault()
-        const v = p.volume() + 0.1
-        p.volume(Math.min(1, v))
+        const vol = Math.min(1, v.volume + 0.1)
+        v.volume = vol
       }
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        const v = p.volume() - 0.1
-        p.volume(Math.max(0, v))
+        const vol = Math.max(0, v.volume - 0.1)
+        v.volume = vol
       }
     }
     document.addEventListener('keydown', handleKey)
@@ -486,8 +466,8 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
       clearTimeout(timeout)
       timeout = setTimeout(() => {
         const el = containerRef.current
-        const p = playerRef.current
-        if (!el || !p || p.paused()) return
+        const v = videoRef.current
+        if (!el || !v || v.paused) return
         const isLandscape = (window.screen?.orientation?.type || '').startsWith('landscape')
           || window.innerWidth > window.innerHeight
         if (isLandscape && !document.fullscreenElement) {
@@ -520,11 +500,7 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     let countdown = 8
     setNextEpCountdown({ item: next, seconds: countdown })
 
-    if (next.hls_path) {
-      fetch('/api/v1/hls/' + next.id + '/index.m3u8' + tokenParam(), { cache: 'force-cache' }).catch(() => {})
-    } else {
-      fetch('/api/v1/stream/' + next.id + tokenParam(), { cache: 'force-cache' }).catch(() => {})
-    }
+    fetch('/api/v1/stream/' + next.id + tokenParam(), { cache: 'force-cache' }).catch(() => {})
 
     clearInterval(nextEpTimerRef.current)
     nextEpTimerRef.current = setInterval(() => {
@@ -541,25 +517,29 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   }, [])
 
   const handleSkipIntro = () => {
-    const p = playerRef.current
-    if (p) {
-      p.currentTime(85)
+    const v = videoRef.current
+    if (v) {
+      v.currentTime = 85
       setShowSkipIntro(false)
     }
   }
 
   const handleReplay = () => {
-    const p = playerRef.current
-    if (!p) return
-    p.currentTime(0)
-    p.play()
+    const v = videoRef.current
+    if (!v) return
+    v.currentTime = 0
+    v.play()
     setShowMovieEnd(false)
     setPlaying(true)
   }
 
   const handleClose = () => {
-    if (playerRef.current) playerRef.current.dispose()
-    playerRef.current = null
+    destroyHls()
+    if (prefetchAbortRef.current) prefetchAbortRef.current.abort()
+    if (videoRef.current) {
+      videoRef.current.removeAttribute('src')
+      videoRef.current.load()
+    }
     onClose()
   }
 
@@ -583,31 +563,31 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   }
 
   const togglePlay = () => {
-    const p = playerRef.current
-    if (!p) return
-    if (p.paused()) { p.play() } else { p.pause() }
+    const v = videoRef.current
+    if (!v) return
+    if (v.paused) { v.play() } else { v.pause() }
   }
 
   const handleSubtitleChange = (e) => {
     const idx = parseInt(e.target.value, 10)
     setSelectedSubIndex(idx)
-    const p = playerRef.current
-    if (!p) return
-    const tracks = p.remoteTextTracks()
+    const v = videoRef.current
+    if (!v) return
+    const tracks = v.textTracks
     for (let i = 0; i < tracks.length; i++) {
       tracks[i].mode = (i === idx) ? 'showing' : 'disabled'
     }
   }
 
   const handleAudioChange = (e) => {
-    const v = e.target.value
-    setAudioIndex(v === '' ? null : parseInt(v, 10))
+    const val = e.target.value
+    setAudioIndex(val === '' ? null : parseInt(val, 10))
   }
 
   const toggleMute = () => {
-    const p = playerRef.current
-    if (!p) return
-    p.muted(!p.muted())
+    const v = videoRef.current
+    if (!v) return
+    v.muted = !v.muted
   }
 
   const toggleFullscreen = () => {
@@ -619,9 +599,9 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
   }
 
   const handleVolumeChange = (e) => {
-    const p = playerRef.current
-    if (!p) return
-    p.volume(parseFloat(e.target.value))
+    const v = videoRef.current
+    if (!v) return
+    v.volume = parseFloat(e.target.value)
   }
 
   const containerStyle = aspectRatio === '16:9' || aspectRatio === '4:3'
@@ -643,16 +623,14 @@ export default function PlayerOverlay({ item: initialItem, allMedia, similarItem
     <div className={styles.playerOverlay + ' ' + styles.active}>
       <div className={styles.wrapper} ref={containerRef} style={containerStyle}>
         <div className={styles.videoContainer}>
-          <div data-vjs-player style={{ width: '100%', height: '100%' }}>
-            <video
-              ref={videoRef}
-              className={'video-js vjs-default-skin vjs-big-play-centered ' + styles.video}
-              style={{ objectFit: aspectRatio === 'contain' || aspectRatio === 'cover' || aspectRatio === 'fill' ? aspectRatio : 'contain', width: '100%', height: '100%' }}
-              playsInline
-              webkit-playsinline="true"
-              crossOrigin="anonymous"
-            />
-          </div>
+          <video
+            ref={videoRef}
+            className={styles.video}
+            style={{ objectFit: aspectRatio === 'contain' || aspectRatio === 'cover' || aspectRatio === 'fill' ? aspectRatio : 'contain', width: '100%', height: '100%' }}
+            playsInline
+            webkit-playsinline="true"
+            crossOrigin="anonymous"
+          />
 
           {switchingSource && (
             <div className={styles.switchOverlay}>

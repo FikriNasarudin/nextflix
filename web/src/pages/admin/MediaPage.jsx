@@ -2,40 +2,6 @@ import { useState, useEffect, Fragment } from 'react'
 import { adminFetch } from '../../api/admin'
 import Modal from '../../components/admin/Modal'
 
-function sizeFmt(bytes) {
-  if (!bytes || bytes <= 0) return ''
-  const mb = bytes / 1024 / 1024
-  if (mb < 1024) return mb.toFixed(1) + ' MB'
-  return (mb / 1024).toFixed(2) + ' GB'
-}
-
-const statusColor = {
-  completed: 'var(--accent)',
-  stale: '#ff9800',
-  in_progress: 'var(--primary)',
-  queued: 'var(--tertiary-container)',
-  failed: '#e50914',
-  pending: 'var(--muted)',
-}
-
-function StatusPill({ status }) {
-  const labels = { in_progress: 'encoding', pending: 'not queued', stale: 'stale', completed: 'optimized', queued: 'queued' }
-  const label = labels[status] || status
-  return (
-    <span style={{
-      display: 'inline-block',
-      padding: '2px 8px',
-      borderRadius: 'var(--radius-full)',
-      fontSize: '.72rem',
-      fontWeight: 700,
-      textTransform: 'uppercase',
-      letterSpacing: '.4px',
-      background: statusColor[status] || 'var(--muted)',
-      color: status === 'completed' || status === 'failed' || status === 'stale' ? '#fff' : 'var(--bg)',
-    }}>{label}</span>
-  )
-}
-
 function EnrichIcon({ status, hasValue, enrichError }) {
   if (hasValue) {
     return <span style={{ color: 'var(--accent)', cursor: 'help' }} title="Done">&#10003;</span>
@@ -56,35 +22,19 @@ function StreamRow({ children }) {
 
 function MediaDetail({ mediaId }) {
   const [streams, setStreams] = useState(null)
-  const [optim, setOptim] = useState(null)
   const [detail, setDetail] = useState(null)
-  const [busy, setBusy] = useState(false)
   const [refreshMsg, setRefreshMsg] = useState('')
 
   const load = async () => {
-    const [s, o, d] = await Promise.all([
+    const [s, d] = await Promise.all([
       adminFetch('/media/' + mediaId + '/streams'),
-      adminFetch('/media/' + mediaId + '/optimization'),
       adminFetch('/media/' + mediaId),
     ])
     setStreams(s)
-    setOptim(o)
     setDetail(d)
   }
 
   useEffect(() => { load() }, [mediaId])
-
-  const triggerReencode = async () => {
-    setBusy(true)
-    await adminFetch('/media/' + mediaId + '/re-encode', { method: 'POST' })
-    setBusy(false)
-    load()
-  }
-
-  const triggerCancelJob = async (rendition) => {
-    await adminFetch('/encoder/cancel/' + mediaId + '/' + rendition, { method: 'POST' })
-    load()
-  }
 
   const triggerRefresh = async () => {
     setRefreshMsg('Refreshing...')
@@ -103,18 +53,9 @@ function MediaDetail({ mediaId }) {
   }
 
   const primaryVideo = streams?.video?.find(v => v.is_default) || streams?.video?.[0]
-  const staleStatus = optim?.hls_stale ? 'stale' : optim?.is_optimized ? 'completed' : (optim?.jobs?.some(j => j.status === 'in_progress') ? 'in_progress' : (optim?.jobs?.some(j => j.status === 'failed') ? 'failed' : 'pending'))
 
   return (
     <div style={{ padding: '12px 24px 20px', background: 'var(--surface-container-low)', borderTop: '1px dashed rgba(255,255,255,.06)' }}>
-      {optim?.hls_stale && (
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '10px 14px', marginBottom: 12, borderRadius: 'var(--radius)', background: 'rgba(255,152,0,.12)', border: '1px solid rgba(255,152,0,.3)' }}>
-          <span style={{ fontSize: '1.2rem' }}>&#9888;</span>
-          <span style={{ flex: 1, fontSize: '.85rem', color: '#ff9800' }}>
-            Source file updated since last encode - HLS is stale. Re-encode to match the current source.
-          </span>
-        </div>
-      )}
       {detail && (
         <div style={{ marginBottom: 16, background: 'rgba(255,255,255,.03)', borderRadius: 'var(--radius)', padding: 14, border: '1px solid rgba(255,255,255,.06)' }}>
           <h4 style={{ fontSize: '.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--muted)', marginBottom: 10 }}>Metadata</h4>
@@ -190,38 +131,6 @@ function MediaDetail({ mediaId }) {
             {(!streams?.subtitles || streams.subtitles.length === 0) && <div style={{ color: 'var(--muted)', fontSize: '.82rem' }}>No subtitles</div>}
           </div>
         </div>
-
-        <div>
-          <h4 style={{ fontSize: '.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--muted)', marginBottom: 8 }}>Optimization</h4>
-          <div style={{ marginBottom: 10 }}>
-            <StatusPill status={staleStatus} />
-          </div>
-          {optim?.jobs?.map(j => (
-            <div key={j.rendition} style={{ marginBottom: 6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.78rem' }}>
-                <span style={{ color: 'var(--text)' }}>{j.rendition}</span>
-                <span style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {j.status}{j.progress_percent > 0 && j.status === 'in_progress' ? ' &middot; ' + j.progress_percent + '%' : ''}
-                  {j.status === 'completed' && j.output_size > 0 ? ' &middot; ' + sizeFmt(j.output_size) : ''}
-                  {j.status === 'in_progress' && (
-                    <button className="btn btn-sm" onClick={() => triggerCancelJob(j.rendition)} style={{ fontSize: '.7rem', padding: '1px 6px', background: 'transparent', color: '#e50914', border: '1px solid rgba(229,9,20,.4)', cursor: 'pointer' }} title="Cancel">
-                      &#10005;
-                    </button>
-                  )}
-                </span>
-              </div>
-              {j.status === 'in_progress' && (
-                <div style={{ height: 3, background: 'var(--surface-container)', borderRadius: 2, overflow: 'hidden', marginTop: 3 }}>
-                  <div style={{ height: '100%', width: j.progress_percent + '%', background: 'var(--primary)', transition: 'width .3s' }} />
-                </div>
-              )}
-              {j.status === 'failed' && j.error && <div style={{ color: '#e50914', fontSize: '.72rem', marginTop: 2 }}>{j.error}</div>}
-            </div>
-          ))}
-          <button className={optim?.hls_stale ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline'} onClick={triggerReencode} disabled={busy} style={{ marginTop: 8 }}>
-            {busy ? 'Queuing...' : 'Re-encode'}
-          </button>
-        </div>
       </div>
     </div>
   )
@@ -250,7 +159,7 @@ export default function MediaPage() {
   }, [])
 
   useEffect(() => {
-    if (expanded !== null && media.some(m => m.optim_status === 'in_progress' || m.optim_status === 'stale' || m.enrich_status === 'pending')) {
+    if (expanded !== null && media.some(m => m.enrich_status === 'pending')) {
       const t = setInterval(load, 3000)
       return () => clearInterval(t)
     }
@@ -304,10 +213,8 @@ export default function MediaPage() {
       : [...prev.tag_ids, tagId],
   }))
 
-  const staleCount = media.filter(m => m.hls_stale).length
   const filtered = media.filter(m =>
     m.title?.toLowerCase().includes(search.toLowerCase()) &&
-    (filter === 'all' ? true : filter === 'stale' ? !!m.hls_stale : m.optim_status === filter) &&
     (enrichFilter === '' ||
       (enrichFilter === 'missing_tmdb' ? (!m.tmdb_id) :
        enrichFilter === 'missing_overview' ? (!m.overview) :
@@ -329,15 +236,7 @@ export default function MediaPage() {
             <option value="missing_poster">Missing Poster</option>
             <option value="failed">Failed</option>
           </select>
-          <select value={filter} onChange={e => setFilter(e.target.value)}
-            style={{ padding: '8px 12px', border: '1px solid var(--outline-variant)', borderRadius: 'var(--radius)', background: 'var(--surface-container)', color: 'var(--text)', fontSize: '.85rem' }}>
-            <option value="all">All ({media.length})</option>
-            <option value="completed">Optimized ({media.filter(m => m.is_optimized && !m.hls_stale).length})</option>
-            <option value="stale">&#9888; Stale ({staleCount})</option>
-            <option value="pending">Not optimized</option>
-            <option value="in_progress">Encoding..</option>
-            <option value="failed">Failed</option>
-          </select>
+
           <input
             type="text"
             placeholder="Search..."
@@ -365,7 +264,6 @@ export default function MediaPage() {
             <th style={{ padding: '12px 16px', textAlign: 'left', background: 'var(--surface-container-high)', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', fontSize: '.75rem' }}>Video</th>
             <th style={{ padding: '12px 16px', textAlign: 'left', background: 'var(--surface-container-high)', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', fontSize: '.75rem' }}>Subs</th>
             <th style={{ padding: '12px 16px', textAlign: 'left', background: 'var(--surface-container-high)', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', fontSize: '.75rem' }}>Audio</th>
-            <th style={{ padding: '12px 16px', textAlign: 'left', background: 'var(--surface-container-high)', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', fontSize: '.75rem' }}>Optimization</th>
             <th style={{ padding: '12px 16px', textAlign: 'right', background: 'var(--surface-container-high)', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', fontSize: '.75rem' }}>Actions</th>
           </tr>
         </thead>
@@ -392,17 +290,13 @@ export default function MediaPage() {
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '.85rem' }}>{m.subtitle_count || 0}</td>
                 <td style={{ padding: '12px 16px', fontSize: '.85rem' }}>{m.audio_count || 0}</td>
-                <td style={{ padding: '12px 16px', display: 'flex', gap: 4, alignItems: 'center' }}>
-                  <StatusPill status={m.optim_status} />
-                  {m.hls_stale && <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#ff9800' }} />}
-                </td>
                 <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                   <button className="btn btn-sm btn-outline" onClick={e => { e.stopPropagation(); openEdit(m) }}>Edit</button>
                 </td>
               </tr>
               {expanded === m.id && (
                 <tr>
-                  <td colSpan={10} style={{ padding: 0 }}>
+                  <td colSpan={9} style={{ padding: 0 }}>
                     <MediaDetail mediaId={m.id} />
                   </td>
                 </tr>

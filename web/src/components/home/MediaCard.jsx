@@ -61,7 +61,6 @@ export default function MediaCard({ item, rank, showProgress, isNew, hideTitle, 
     >
       {rank && <div className={styles.rank}>{rank}</div>}
       {isNew && <div className={styles.badgeNew}>NEW</div>}
-      {item.has_hls && <div className={styles.badgeHls}>4K</div>}
       {rating && <div className={styles.rating}>{rating}</div>}
       {(year || duration || episodes) && (
         <div className={styles.info}>{[year, duration, episodes].filter(Boolean).join(' · ') || '\u00A0'}</div>
@@ -103,7 +102,7 @@ export default function MediaCard({ item, rank, showProgress, isNew, hideTitle, 
           </div>
           <div className={styles.hoverMeta}>
             {rating && <span className={styles.match}>{Math.round(rating * 10)}% Match</span>}
-            <span className={styles.hd}>{item.has_hls ? '4K' : 'HD'}</span>
+            <span className={styles.hd}>HD</span>
             {episodes && <span>{episodes}</span>}
           </div>
           {item.tag_names?.length > 0 && (

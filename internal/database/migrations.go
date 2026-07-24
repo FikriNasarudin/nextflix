@@ -365,6 +365,7 @@ func runVersionedMigrations(db *sql.DB) error {
 		{10, migrateV10},
 		{11, migrateV11},
 		{12, migrateV12},
+		{13, migrateV13},
 	}
 	for _, m := range migrations {
 		if v < m.version {
@@ -495,6 +496,23 @@ func migrateV12(db *sql.DB) error {
 	return nil
 }
 
+func migrateV13(db *sql.DB) error {
+	stmts := []string{
+		`DROP TABLE IF EXISTS encode_jobs`,
+		`UPDATE media_items SET hls_480p_path = '', hls_stale = 0, source_size = 0, source_mtime = 0`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			return fmt.Errorf("v13 stmt: %w\nSQL: %s", err, s)
+		}
+	}
+
+	os.RemoveAll("./data/transcodes")
+
+	log.Println("v13: removed encoder, purged HLS data")
+	return nil
+}
+
 func backfillCompletion(db *sql.DB) {
 	rows, err := db.Query(`SELECT media_id, rendition, output_path FROM encode_jobs WHERE status = 'completed' AND output_path != ''`)
 	if err != nil {
@@ -540,10 +558,7 @@ func seedSettings(db *sql.DB, cfg *config.Config) error {
 		"tmdb_api_key":              cfg.Integrations.TmdbAPIKey,
 		"scanner_media_dir":         cfg.Scanner.MediaDir,
 		"scanner_enable_watcher":    fmt.Sprintf("%t", cfg.Scanner.EnableFilesystemWatcher),
-		"encoder_enable_480p_hls":   fmt.Sprintf("%t", cfg.Encoder.EnableAuto480pHLS),
-		"encoder_hls_segment_sec":   fmt.Sprintf("%d", cfg.Encoder.HLSSegmentDurationSec),
-		"encoder_ffmpeg_preset":     cfg.Encoder.FFmpegPreset,
-		"encoder_hls_output_dir":    cfg.Encoder.HLSOutputDir,
+		"transcoder_segment_sec":    fmt.Sprintf("%d", cfg.Transcoder.SegmentDurationSec),
 		"ui_app_title":              cfg.UI.AppTitle,
 		"ui_theme":                  cfg.UI.Theme,
 		"recommendations_enabled":   "true",

@@ -19,10 +19,10 @@ import (
 
 	"nextflix/internal/admin"
 	"nextflix/internal/auth"
-	"nextflix/internal/encoder"
 	"nextflix/internal/library"
 	"nextflix/internal/middleware"
 	"nextflix/internal/scanner"
+	"nextflix/internal/transcoder"
 	"nextflix/web"
 )
 
@@ -42,9 +42,8 @@ type Router struct {
 	mux         *http.ServeMux
 	db          *sql.DB
 	authMgr     *auth.Manager
-	hlsDir      string
 	mediaDir    string
-	encoder     *encoder.Encoder
+	sm          *transcoder.SessionManager
 	authMid     func(http.Handler) http.Handler
 	adminMid    func(http.Handler) http.Handler
 	scanner     *scanner.Scanner
@@ -54,14 +53,13 @@ type Router struct {
 	syncFunc    func()
 }
 
-func NewRouter(db *sql.DB, authMgr *auth.Manager, hlsDir string, mediaDir string, enc *encoder.Encoder, lm *library.LibraryManager, scanFunc func(), refreshFunc func(), syncFunc func()) *Router {
+func NewRouter(db *sql.DB, authMgr *auth.Manager, mediaDir string, lm *library.LibraryManager, scanFunc func(), refreshFunc func(), syncFunc func(), sm *transcoder.SessionManager) *Router {
 	r := &Router{
 		mux:         http.NewServeMux(),
 		db:          db,
 		authMgr:     authMgr,
-		hlsDir:      hlsDir,
 		mediaDir:    mediaDir,
-		encoder:     enc,
+		sm:          sm,
 		authMid:     middleware.Auth(authMgr),
 		adminMid:    middleware.RequireAdmin,
 		scanner:     lm.Scanner(),
@@ -147,14 +145,12 @@ func (r *Router) mountHealth() {
 }
 
 func (r *Router) mountStreaming() {
-	maxTx := 1
-	if r.encoder != nil {
-		maxTx = r.encoder.Cfg().MaxConcurrentTranscodes
-	}
-	sh := NewStreamHandler(r.db, r.hlsDir, maxTx)
+	sh := NewStreamHandler(r.db)
+	th := NewTranscodeHandler(r.db, r.sm)
 	r.mux.Handle("GET /api/v1/stream/{id}", r.authMid(http.HandlerFunc(sh.Serve)))
-	r.mux.Handle("GET /api/v1/remux/{id}", r.authMid(http.HandlerFunc(sh.Remux)))
-	r.mux.Handle("GET /api/v1/hls/{id}/{rest...}", r.authMid(http.HandlerFunc(sh.HLSFile)))
+	r.mux.Handle("GET /api/v1/transcode/{id}/master.m3u8", r.authMid(http.HandlerFunc(th.Master)))
+	r.mux.Handle("GET /api/v1/transcode/{id}/{rendition}.m3u8", r.authMid(http.HandlerFunc(th.Rendition)))
+	r.mux.Handle("GET /api/v1/transcode/{id}/{rest...}", r.authMid(http.HandlerFunc(th.Segment)))
 }
 
 func (r *Router) mountProgress() {
@@ -540,11 +536,10 @@ func (r *Router) mountAdmin() {
 	uh := admin.NewUserHandler(r.db)
 	lh := admin.NewLibraryHandler(r.db, r.mediaDir)
 	th := admin.NewTagHandler(r.db)
-	mh := admin.NewMediaHandler(r.db, r.lm, r.encoder)
+	mh := admin.NewMediaHandler(r.db, r.lm)
 	sh := admin.NewSettingsHandler(r.db)
 	ch := admin.NewCollectionHandler(r.db)
 	sth := admin.NewStatsHandler(r.db)
-	eh := admin.NewEncodingHandler(r.db, r.encoder)
 
 	a := func(h http.HandlerFunc) http.Handler {
 		return r.authMid(r.adminMid(h))
@@ -586,17 +581,13 @@ func (r *Router) mountAdmin() {
 	adminMux.Handle("GET /api/v1/admin/media", a(mh.List))
 	adminMux.Handle("GET /api/v1/admin/media/{id}", a(mh.Get))
 	adminMux.Handle("PUT /api/v1/admin/media/{id}", a(mh.Update))
-	adminMux.Handle("POST /api/v1/admin/media/{id}/re-encode", a(mh.Reencode))
 	adminMux.Handle("POST /api/v1/admin/media/{id}/refresh-metadata", a(mh.RefreshMetadata))
 
-	adminMux.Handle("GET /api/v1/admin/media/{id}/streams", a(eh.Streams))
-	adminMux.Handle("GET /api/v1/admin/media/{id}/optimization", a(eh.Optimization))
-
-	adminMux.Handle("GET /api/v1/admin/encoder/queue", a(eh.Queue))
-	adminMux.Handle("POST /api/v1/admin/encoder/reencode-stale", a(eh.ReencodeStale))
-	adminMux.Handle("POST /api/v1/admin/encoder/cancel/{id}/{rendition}", a(eh.CancelJob))
-	adminMux.Handle("POST /api/v1/admin/encoder/clear-queue", a(eh.ClearQueue))
-	adminMux.Handle("GET /api/v1/admin/encoder/info", a(eh.Info))
+	adminMux.Handle("GET /api/v1/admin/media/{id}/streams", a(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		id, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
+		if err != nil { writeError(w, "invalid id", http.StatusBadRequest); return }
+		admin.NewEncodingHandler(r.db).Streams(w, req, id)
+	})))
 
 	adminMux.Handle("GET /api/v1/admin/settings", a(sh.List))
 	adminMux.Handle("PUT /api/v1/admin/settings", a(sh.Update))

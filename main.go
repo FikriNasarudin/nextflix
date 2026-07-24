@@ -14,12 +14,11 @@ import (
 	"nextflix/internal/auth"
 	"nextflix/internal/config"
 	"nextflix/internal/database"
-	"nextflix/internal/encoder"
 	"nextflix/internal/handler"
 	"nextflix/internal/library"
 	"nextflix/internal/recommendation"
-	"nextflix/internal/scanner"
 	"nextflix/internal/tmdb"
+	"nextflix/internal/transcoder"
 )
 
 func main() {
@@ -64,15 +63,15 @@ func main() {
 		log.Fatalf("Failed to init auth: %v", err)
 	}
 
-	encoderCh := make(chan scanner.EncoderJob, 100)
-	enc := encoder.New(db, cfg.Encoder, encoderCh)
-	enc.Recover()
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	enc.Start(ctx)
 
-	lm := library.New(db, cfg, encoderCh)
+	encoderType := transcoder.DetectEncoder()
+	sm := transcoder.New(cfg.Transcoder, encoderType)
+	os.MkdirAll(cfg.Transcoder.ShmDir, 0755)
+	go sm.StartReaper(ctx)
+
+	lm := library.New(db, cfg)
 	lm.StartWatcher()
 
 	scanFunc := func() {
@@ -103,7 +102,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         addr(cfg.Server.Port),
-		Handler:      handler.NewRouter(db, authMgr, cfg.Encoder.HLSOutputDir, cfg.Scanner.MediaDir, enc, lm, scanFunc, refreshFunc, tmdbSync.Trigger),
+		Handler:      handler.NewRouter(db, authMgr, cfg.Scanner.MediaDir, lm, scanFunc, refreshFunc, tmdbSync.Trigger, sm),
 		ReadTimeout:  time.Duration(cfg.Server.ReadTimeoutSec) * time.Second,
 		WriteTimeout: time.Duration(cfg.Server.WriteTimeoutSec) * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -134,6 +133,8 @@ func main() {
 
 	<-ctx.Done()
 	log.Println("Shutting down...")
+
+	sm.KillAll()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
